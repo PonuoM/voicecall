@@ -1,5 +1,5 @@
-# Sensitive — contains DB credentials
-login.php
+# Sensitive — real DB credentials (use config.example.php as template)
+config.php
 
 # Recordings / large data
 20260120-20260131/
