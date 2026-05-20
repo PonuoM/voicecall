@@ -1,0 +1,14 @@
+# Sensitive — contains DB credentials
+login.php
+
+# Recordings / large data
+20260120-20260131/
+*.gsm
+*.wav
+*.mp3
+
+# Local / system
+*.log
+.DS_Store
+Thumbs.db
+.claude/

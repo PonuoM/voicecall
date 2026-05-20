@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Call Recording Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse-border { 0%,100% { border-color: rgba(14,165,233,0.3); } 50% { border-color: rgba(14,165,233,0.8); } }
+        .playing-row { background: linear-gradient(90deg, rgba(14,165,233,0.06) 0%, rgba(14,165,233,0.02) 100%) !important; border-left: 3px solid #0ea5e9; animation: pulse-border 2s infinite; }
+        #audio-player { transition: transform 0.3s ease, opacity 0.3s ease; }
+        #audio-player.hidden-player { transform: translateY(100px); opacity: 0; pointer-events: none; }
+        .drop-zone { border: 2px dashed #94a3b8; transition: all 0.3s; }
+        .drop-zone.drag-over { border-color: #0ea5e9; background: rgba(14,165,233,0.05); }
+        .upload-progress { transition: width 0.3s ease; }
+        .modal-backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+        .login-bg { background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 50%, #1e3a5f 100%); }
+        .login-card { animation: fadeIn 0.5s ease-out; }
+        .shake { animation: shake 0.5s; }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div id="loginScreen" class="fixed inset-0 z-[200] login-bg flex items-center justify-center">
+    <div class="login-card w-full max-w-md mx-4">
+        <div class="text-center mb-8">
+            <div class="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <i class="w-8 h-8 text-white" data-lucide="mic"></i>
+            </div>
+            <h1 class="text-2xl font-bold text-white">Call Recordings</h1>
+            <p class="text-sky-200 text-sm mt-1">เข้าสู่ระบบเพื่อใช้งาน Dashboard</p>
+        </div>
+        <div class="bg-white rounded-2xl shadow-2xl p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-semibold text-slate-700 mb-1.5">Username</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="w-4 h-4 text-slate-400" data-lucide="user"></i>
+                    </div>
+                    <input id="loginUsername" type="text" autocomplete="username"
+                        class="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500"
+                        placeholder="ชื่อผู้ใช้" />
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="w-4 h-4 text-slate-400" data-lucide="lock"></i>
+                    </div>
+                    <input id="loginPassword" type="password" autocomplete="current-password"
+                        class="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500"
+                        placeholder="รหัสผ่าน" />
+                </div>
+            </div>
+            <div id="loginError" class="text-red-500 text-sm font-medium hidden"></div>
+            <button id="loginBtn" onclick="doLogin()"
+                class="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2">
+                <i class="w-4 h-4" data-lucide="log-in"></i> เข้าสู่ระบบ
+            </button>
+        </div>
+        <p class="text-center text-sky-300 text-xs mt-4">ข้อมูลจาก ระบบ MiniERP</p>
+    </div>
+</div>
+
+<!-- Header -->
+<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <div class="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
+        <div class="flex items-center space-x-4">
+            <div class="w-10 h-10 bg-sky-600 rounded-lg flex items-center justify-center text-white">
+                <i data-lucide="mic"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight text-slate-800">Call Recordings</h1>
+                <p class="text-xs text-slate-500 font-medium uppercase tracking-wider">Google Drive Dashboard</p>
+            </div>
+        </div>
+        <!-- Global Search -->
+        <div class="hidden md:flex flex-1 max-w-lg mx-8">
+            <div class="relative w-full">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <i class="w-4 h-4 text-slate-400" data-lucide="search"></i>
+                </div>
+                <input id="globalSearch" oninput="debounceSearch()"
+                    class="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-sky-500 focus:border-sky-500"
+                    placeholder="ค้นหาเบอร์โทร, Call ID... (Ctrl+K)" type="text" />
+            </div>
+        </div>
+        <!-- Auth + Stats -->
+        <div class="flex items-center space-x-3">
+            <div id="statTotal" class="hidden sm:flex items-center gap-1.5 bg-sky-50 text-sky-700 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                <i class="w-3.5 h-3.5" data-lucide="phone"></i><span>—</span>
+            </div>
+            <div id="statIn" class="hidden sm:flex items-center gap-1.5 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                <i class="w-3.5 h-3.5" data-lucide="phone-incoming"></i><span>—</span>
+            </div>
+            <div id="statOut" class="hidden sm:flex items-center gap-1.5 bg-orange-50 text-orange-700 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                <i class="w-3.5 h-3.5" data-lucide="phone-outgoing"></i><span>—</span>
+            </div>
+            <!-- User Info + Logout -->
+            <div id="userInfoHeader" class="flex items-center gap-2">
+                <span id="headerUserName" class="text-sm font-medium text-slate-600 hidden"></span>
+                <button id="logoutBtn" onclick="doLogout()"
+                    class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                    <i class="w-4 h-4" data-lucide="log-out"></i> ออกจากระบบ
+                </button>
+            </div>
+            <!-- Google Drive Auth -->
+            <button id="authBtn" onclick="handleAuth()"
+                class="hidden flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="cloud"></i>
+                <span id="authLabel">เชื่อมต่อ Google Drive</span>
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-[1600px] mx-auto p-4 lg:p-6 space-y-5">
+
+    <!-- Source & Filters -->
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+        <div class="flex flex-wrap items-end gap-3">
+            <div class="w-48">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">แหล่งข้อมูล</label>
+                <select id="dataSource" onchange="switchSource()"
+                    class="form-select w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500">
+                    <option value="local">📁 Local (recordings.json)</option>
+                    <option value="gdrive" selected>☁️ Google Drive</option>
+                </select>
+            </div>
+            <div id="companySelect" class="w-48">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">บริษัท</label>
+                <div class="flex gap-1">
+                    <select id="companyFilter" onchange="handleCompanyChange()"
+                        class="form-select flex-1 rounded-lg border-slate-200 text-sm focus:ring-sky-500">
+                        <option value="">กำลังโหลด...</option>
+                    </select>
+                    <button id="addCompanyBtn" onclick="showAddCompanyModal()" title="เพิ่มบริษัทใหม่"
+                        class="hidden p-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors">
+                        <i class="w-4 h-4" data-lucide="plus"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="dateRangeSelect" class="flex gap-2">
+                <div class="w-40">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">จากวันที่</label>
+                    <input id="dateFrom" type="date" onchange="handleSearch()"
+                        class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" />
+                </div>
+                <div class="w-40">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">ถึงวันที่</label>
+                    <input id="dateTo" type="date" onchange="handleSearch()"
+                        class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" />
+                </div>
+            </div>
+            <div class="w-36">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">ทิศทาง</label>
+                <select id="dirFilter" onchange="handleSearch()"
+                    class="form-select w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500">
+                    <option value="">ทั้งหมด</option>
+                    <option value="IN">สายเข้า (IN)</option>
+                    <option value="OUT">สายออก (OUT)</option>
+                </select>
+            </div>
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">ค้นหาเบอร์โทร</label>
+                <input id="phoneSearch" type="text" oninput="debounceSearch()"
+                    class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500"
+                    placeholder="เช่น 0945547598" />
+            </div>
+            <div class="flex gap-2">
+                <button onclick="resetFilters()"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm">
+                    <i class="w-4 h-4" data-lucide="rotate-ccw"></i> รีเซ็ต
+                </button>
+                <button id="uploadBtn" onclick="showUploadModal()"
+                    class="hidden bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                    <i class="w-4 h-4" data-lucide="upload-cloud"></i> อัปโหลด
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Loading -->
+    <div id="loadingState" class="text-center py-16">
+        <div class="inline-flex items-center gap-3 text-slate-500">
+            <svg class="animate-spin h-6 w-6" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="loadingText" class="text-sm font-medium">กำลังเชื่อมต่อ Google Drive...</span>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <section id="tableSection" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hidden">
+        <div class="px-6 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <span id="showingText" class="text-sm font-medium text-slate-600"></span>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center text-sm text-slate-500">
+                    <span class="mr-2">แสดง:</span>
+                    <select id="pageSize" onchange="changePageSize()"
+                        class="bg-transparent border-none focus:ring-0 text-sm font-semibold text-slate-700 p-0 pr-6">
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+                <div class="flex items-center space-x-1">
+                    <button onclick="prevPage()" class="p-1.5 hover:bg-slate-200 rounded transition-colors">
+                        <i class="w-4 h-4" data-lucide="chevron-left"></i>
+                    </button>
+                    <span id="pageInfo" class="text-xs text-slate-500 px-2 min-w-[80px] text-center"></span>
+                    <button onclick="nextPage()" class="p-1.5 hover:bg-slate-200 rounded transition-colors">
+                        <i class="w-4 h-4" data-lucide="chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-slate-50/80 text-slate-500 text-[11px] uppercase tracking-wider font-bold border-b border-slate-200">
+                    <tr>
+                        <th class="px-4 py-3 w-8"></th>
+                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('id')">Call ID <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
+                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('date')">วันที่ & เวลา <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
+                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('caller')">สายโทร (Caller) <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
+                        <th class="px-4 py-3 text-center w-16">ทิศทาง</th>
+                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('receiver')">สายรับ (Receiver) <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
+                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600 text-right" onclick="sortBy('size')">ขนาด <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
+                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600 text-right" onclick="sortBy('duration')">ระยะเวลา <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
+                        <th class="px-4 py-3 text-right">เล่น</th>
+                        <th class="px-4 py-3 text-center">ดาวน์โหลด</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody" class="divide-y divide-slate-100 text-sm"></tbody>
+            </table>
+        </div>
+        <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex justify-between items-center">
+            <span id="sourceInfo">ข้อมูลจาก Google Drive</span>
+            <span id="filteredCount" class="font-semibold"></span>
+        </div>
+    </section>
+</main>
+
+<!-- Floating Audio Player -->
+<div id="audio-player" class="fixed bottom-6 right-6 w-96 bg-white shadow-2xl rounded-2xl border border-slate-200 p-4 z-50 hidden-player">
+    <div class="flex items-center justify-between mb-2">
+        <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+            <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> กำลังเล่น
+        </h4>
+        <button onclick="stopAudio()" class="text-slate-400 hover:text-red-500 transition-colors">
+            <i class="w-4 h-4" data-lucide="x"></i>
+        </button>
+    </div>
+    <div class="space-y-2">
+        <div id="playerInfo" class="flex flex-wrap items-center gap-x-3 gap-y-1"></div>
+        <div class="flex items-center gap-2 text-[10px] font-mono text-slate-400">
+            <span id="playerCaller">---</span>
+            <i class="w-3 h-3" data-lucide="arrow-right"></i>
+            <span id="playerReceiver">---</span>
+        </div>
+        <audio id="audioElement" controls class="w-full h-10 mt-1" style="border-radius:8px;"></audio>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div id="uploadModal" class="fixed inset-0 z-[100] hidden">
+    <div class="modal-backdrop absolute inset-0" onclick="hideUploadModal()"></div>
+    <div class="relative mx-auto mt-20 w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 fade-in">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="w-5 h-5 text-emerald-500" data-lucide="upload-cloud"></i>
+                อัปโหลดไฟล์เสียง
+            </h2>
+            <button onclick="hideUploadModal()" class="text-slate-400 hover:text-slate-600">
+                <i class="w-5 h-5" data-lucide="x"></i>
+            </button>
+        </div>
+        <!-- Target folder info -->
+        <div class="bg-sky-50 rounded-lg p-3 mb-4 text-sm text-sky-800">
+            <div class="flex items-center gap-2 font-semibold mb-1">
+                <i class="w-4 h-4" data-lucide="folder"></i>
+                อัปโหลดไปที่:
+            </div>
+            <div id="uploadTargetPath" class="font-mono text-xs text-sky-600">เก็บข้อมูลไฟล์เสียง / Company = 1 / 202601 / 20260120</div>
+            <p class="text-[10px] text-sky-500 mt-1">* ระบบจะสร้างโฟลเดอร์เดือน/วัน อัตโนมัติ จากชื่อไฟล์</p>
+        </div>
+        <!-- Drop zone -->
+        <div id="dropZone" class="drop-zone rounded-xl p-8 text-center cursor-pointer mb-4"
+            onclick="document.getElementById('fileInput').click()"
+            ondragover="event.preventDefault(); this.classList.add('drag-over')"
+            ondragleave="this.classList.remove('drag-over')"
+            ondrop="handleFileDrop(event)">
+            <i class="w-12 h-12 text-slate-300 mx-auto mb-3" data-lucide="cloud-upload"></i>
+            <p class="text-sm font-medium text-slate-600">ลากไฟล์ .wav มาวางที่นี่</p>
+            <p class="text-xs text-slate-400 mt-1">หรือ คลิกเพื่อเลือกไฟล์</p>
+            <input type="file" id="fileInput" multiple accept=".wav" class="hidden" onchange="handleFileSelect(event)" />
+        </div>
+        <!-- File list -->
+        <div id="uploadFileList" class="max-h-48 overflow-y-auto space-y-2 mb-4 hidden"></div>
+        <!-- Progress -->
+        <div id="uploadProgress" class="hidden mb-4">
+            <div class="flex items-center justify-between text-sm mb-1">
+                <span id="uploadStatus" class="text-slate-600 font-medium">กำลังอัปโหลด...</span>
+                <span id="uploadPercent" class="text-sky-600 font-bold">0%</span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2">
+                <div id="uploadBar" class="bg-sky-500 h-2 rounded-full upload-progress" style="width: 0%"></div>
+            </div>
+        </div>
+        <!-- Actions -->
+        <div class="flex justify-end gap-3">
+            <button onclick="hideUploadModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">ยกเลิก</button>
+            <button id="startUploadBtn" onclick="startUpload()" disabled
+                class="px-5 py-2 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2">
+                <i class="w-4 h-4" data-lucide="upload"></i> เริ่มอัปโหลด
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Company Modal -->
+<div id="addCompanyModal" class="fixed inset-0 z-[100] hidden">
+    <div class="modal-backdrop absolute inset-0" onclick="hideAddCompanyModal()"></div>
+    <div class="relative mx-auto mt-32 w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 fade-in">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="w-5 h-5 text-emerald-500" data-lucide="building-2"></i>
+                สร้างบริษัทใหม่
+            </h2>
+            <button onclick="hideAddCompanyModal()" class="text-slate-400 hover:text-slate-600">
+                <i class="w-5 h-5" data-lucide="x"></i>
+            </button>
+        </div>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">ชื่อโฟลเดอร์บริษัท</label>
+                <input id="newCompanyName" type="text"
+                    class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500"
+                    placeholder="เช่น Company = 2" />
+                <p class="text-xs text-slate-400 mt-1">จะสร้างโฟลเดอร์ใน "เก็บข้อมูลไฟล์เสียง" บน Google Drive</p>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button onclick="hideAddCompanyModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">ยกเลิก</button>
+                <button onclick="createCompanyFolder()" class="px-5 py-2 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors flex items-center gap-2">
+                    <i class="w-4 h-4" data-lucide="folder-plus"></i> สร้าง
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== CONFIG =====
+const CONFIG = {
+    API_KEY: 'AIzaSyCCIywRsoHuBzVTm-B-FA8N7VzAcECIEBE',
+    CLIENT_ID: '365292172847-ja6g38rp7m0300isj3b0elhbt8ch2k81.apps.googleusercontent.com',
+    ROOT_FOLDER_ID: '135GAP4FYM7b7LwVaVwdBHPFYUwn7T5rx',
+    SCOPES: 'https://www.googleapis.com/auth/drive',
+    LOGIN_API_URL: './login.php', // PHP API endpoint
+};
+
+// ===== State =====
+let allData = [];
+let filtered = [];
+let currentPage = 1;
+let pageSizeVal = 20;
+let sortField = 'date';
+let sortAsc = false;
+let currentPlayingId = null;
+let searchDebounceTimer = null;
+let companyFolders = [];
+let monthFolders = [];
+let dayFolders = [];
+let pendingFiles = [];
+let accessToken = null;
+let tokenClient = null;
+let userName = null;
+let loggedInUser = null; // DB user info from login
+
+// ===== Login System =====
+async function doLogin() {
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errEl = document.getElementById('loginError');
+    const btn = document.getElementById('loginBtn');
+    errEl.classList.add('hidden');
+    if (!username || !password) { showLoginError('กรุณาใส่ username และ password'); return; }
+    btn.disabled = true; btn.textContent = 'กำลังเข้าสู่ระบบ...';
+    try {
+        const res = await fetch(CONFIG.LOGIN_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+            loggedInUser = data.user;
+            sessionStorage.setItem('voicecall_user', JSON.stringify(data.user));
+            showDashboard();
+        } else {
+            showLoginError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        }
+    } catch (err) {
+        showLoginError('ไม่สามารถเชื่อมต่อ API ได้: ' + err.message);
+    }
+    btn.disabled = false; btn.innerHTML = '<i class="w-4 h-4" data-lucide="log-in"></i> เข้าสู่ระบบ'; lucide.createIcons();
+}
+
+function showLoginError(msg) {
+    const errEl = document.getElementById('loginError');
+    errEl.textContent = msg; errEl.classList.remove('hidden');
+    document.querySelector('.login-card').classList.add('shake');
+    setTimeout(() => document.querySelector('.login-card').classList.remove('shake'), 500);
+}
+
+function doLogout() {
+    loggedInUser = null;
+    sessionStorage.removeItem('voicecall_user');
+    if (accessToken) { google.accounts.oauth2.revoke(accessToken, ()=>{}); accessToken = null; }
+    document.getElementById('loginScreen').classList.remove('hidden');
+    document.getElementById('loginUsername').value = '';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginError').classList.add('hidden');
+}
+
+function showDashboard() {
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('headerUserName').textContent = loggedInUser.name + ' (' + loggedInUser.company_name + ')';
+    document.getElementById('headerUserName').classList.remove('hidden');
+    // Show Google Drive connect button after DB login
+    document.getElementById('authBtn').classList.remove('hidden');
+    lucide.createIcons();
+    init();
+}
+
+// ===== Google OAuth =====
+function initGIS() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CONFIG.CLIENT_ID,
+        scope: CONFIG.SCOPES,
+        callback: (resp) => {
+            if (resp.error) { console.error('Auth error:', resp); return; }
+            accessToken = resp.access_token;
+            onSignedIn();
+        },
+    });
+}
+
+function handleAuth() {
+    if (accessToken) {
+        // Sign out
+        google.accounts.oauth2.revoke(accessToken, () => {
+            accessToken = null;
+            userName = null;
+            onSignedOut();
+        });
+    } else {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+    }
+}
+
+async function onSignedIn() {
+    // No need to fetch userinfo — we have name from DB login
+    userName = loggedInUser ? loggedInUser.name : 'User';
+
+    document.getElementById('authLabel').textContent = '✓ เชื่อมต่อแล้ว';
+    document.getElementById('authBtn').classList.remove('bg-emerald-500', 'hover:bg-emerald-600');
+    document.getElementById('authBtn').classList.add('bg-slate-500', 'hover:bg-slate-600');
+    document.getElementById('uploadBtn').classList.remove('hidden');
+    document.getElementById('addCompanyBtn').classList.remove('hidden');
+    lucide.createIcons();
+}
+
+function onSignedOut() {
+    document.getElementById('authLabel').textContent = 'เชื่อมต่อ Google Drive';
+    document.getElementById('authBtn').classList.add('bg-emerald-500', 'hover:bg-emerald-600');
+    document.getElementById('authBtn').classList.remove('bg-slate-500', 'hover:bg-slate-600');
+    document.getElementById('uploadBtn').classList.add('hidden');
+    document.getElementById('addCompanyBtn').classList.add('hidden');
+    lucide.createIcons();
+}
+
+// ===== Google Drive API =====
+async function gdriveList(parentId, query = '') {
+    let q = `'${parentId}' in parents and trashed=false`;
+    if (query) q += ` and ${query}`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&key=${CONFIG.API_KEY}&fields=files(id,name,size,mimeType)&pageSize=1000&orderBy=name`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+    return (await res.json()).files || [];
+}
+
+async function gdriveListAll(parentId, query = '') {
+    let q = `'${parentId}' in parents and trashed=false`;
+    if (query) q += ` and ${query}`;
+    let allFiles = [], pageToken = '';
+    do {
+        let url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&key=${CONFIG.API_KEY}&fields=files(id,name,size,mimeType),nextPageToken&pageSize=1000&orderBy=name`;
+        if (pageToken) url += `&pageToken=${pageToken}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+        allFiles = allFiles.concat(data.files || []);
+        pageToken = data.nextPageToken || '';
+    } while (pageToken);
+    return allFiles;
+}
+
+async function gdriveCreateFolder(name, parentId) {
+    const res = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            name: name,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [parentId]
+        })
+    });
+    if (!res.ok) throw new Error(`Folder creation failed: ${res.status}`);
+    return await res.json();
+}
+
+async function gdriveUploadFile(file, parentId) {
+    const metadata = {
+        name: file.name,
+        parents: [parentId]
+    };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', file);
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken },
+        body: form
+    });
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    return await res.json();
+}
+
+async function findOrCreateFolder(name, parentId) {
+    const existing = await gdriveList(parentId, `mimeType='application/vnd.google-apps.folder' and name='${name}'`);
+    if (existing.length > 0) return existing[0];
+    return await gdriveCreateFolder(name, parentId);
+}
+
+function parseWavFilename(file) {
+    try {
+        const name = file.name.replace(/\.wav$/i, '');
+        const parts = name.split('_');
+
+        // Format 1: YYYYMMDD_HHMMSS_calldata-IN/OUT.wav (original PBX format)
+        if (parts.length >= 3 && /^\d{8}$/.test(parts[0]) && /^\d{6}$/.test(parts[1])) {
+            const dateStr = parts[0], timeStr = parts[1];
+            const rest = decodeURIComponent(parts.slice(2).join('_'));
+            const direction = rest.endsWith('-OUT') ? 'OUT' : 'IN';
+            const noDir = direction === 'OUT' ? rest.slice(0, -4) : rest.slice(0, -3);
+            const phones = noDir.match(/\+\d+/g) || [];
+            const callId = noDir.split('-')[0];
+            return {
+                id: callId,
+                date: `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`,
+                time: `${timeStr.slice(0,2)}:${timeStr.slice(2,4)}:${timeStr.slice(4,6)}`,
+                caller: phones[0] || '', receiver: phones[1] || '',
+                direction, fileId: file.id, filename: file.name,
+                size: parseInt(file.size) || 0
+            };
+        }
+
+        // Format 2: myrecordings_YYYYMMDD_HHMMSS_dir_phone_phone.wav
+        // Example: myrecordings_20260226_094814_out_%2B66945549277_%2B66878372158.wav
+        const decoded = decodeURIComponent(name);
+        const dateMatch = decoded.match(/(\d{8})/);
+        if (dateMatch) {
+            const d = dateMatch[1];
+            const dateFormatted = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+            // Extract time: YYYYMMDD_HHMMSS (underscore between date and time)
+            const timeMatch = decoded.match(/\d{8}[_]?(\d{6})/);
+            let time = '00:00:00';
+            if (timeMatch) {
+                const t = timeMatch[1];
+                time = `${t.slice(0,2)}:${t.slice(2,4)}:${t.slice(4,6)}`;
+            }
+            // Extract direction: _out_ or _in_ (case insensitive)
+            const dirMatch = decoded.match(/[_](out|in)[_]/i);
+            const direction = dirMatch ? dirMatch[1].toUpperCase() : '';
+            // Extract phone numbers: +66... pattern (after URL decode)
+            const phones = decoded.match(/\+\d{8,}/g) || [];
+            // Generate CALL ID from date+time
+            const callId = timeMatch ? `${d}${timeMatch[1]}` : d;
+            return {
+                id: callId,
+                date: dateFormatted,
+                time: time,
+                caller: phones[0] ? '+' + phones[0].replace('+','') : '',
+                receiver: phones[1] ? '+' + phones[1].replace('+','') : '',
+                direction, fileId: file.id, filename: file.name,
+                size: parseInt(file.size) || 0
+            };
+        }
+
+        return null;
+    } catch (e) { return null; }
+}
+
+// ===== Init =====
+async function init() {
+    const source = document.getElementById('dataSource').value;
+    if (source === 'local') {
+        await loadLocalData();
+    } else {
+        await loadGDriveCompanies();
+    }
+    lucide.createIcons();
+}
+
+async function loadLocalData() {
+    setLoading(true, 'กำลังโหลด recordings.json...');
+    document.getElementById('companySelect').classList.add('hidden');
+    document.getElementById('dateRangeSelect').classList.add('hidden');
+    try {
+        const res = await fetch('./20260120-20260131/recordings.json');
+        if (!res.ok) throw new Error('ไม่พบ recordings.json');
+        allData = await res.json();
+        filtered = [...allData]; updateStats(filtered); renderTable(); setLoading(false);
+        document.getElementById('sourceInfo').textContent = 'ข้อมูลจาก recordings.json (Local)';
+    } catch (err) { setLoading(true, '❌ ' + err.message); }
+}
+
+// Recursively find ALL WAV files in all sub-folders
+async function gdriveListAllRecursive(folderId, statusCallback) {
+    let allWavFiles = [];
+    // Get everything in this folder (files + sub-folders)
+    const items = await gdriveListAll(folderId);
+    // Separate files and folders
+    const wavFiles = items.filter(f => f.mimeType === 'audio/wav' || f.mimeType === 'audio/x-wav');
+    const subFolders = items.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
+    allWavFiles = allWavFiles.concat(wavFiles);
+    if (statusCallback && subFolders.length > 0) statusCallback(subFolders.length);
+    // Recurse into sub-folders (parallel, max 5 at a time)
+    for (let i = 0; i < subFolders.length; i += 5) {
+        const batch = subFolders.slice(i, i + 5);
+        const results = await Promise.all(batch.map(f => gdriveListAllRecursive(f.id, null)));
+        for (const files of results) allWavFiles = allWavFiles.concat(files);
+    }
+    return allWavFiles;
+}
+
+async function loadGDriveCompanies() {
+    setLoading(true, 'กำลังดึงรายชื่อบริษัทจาก Google Drive...');
+    document.getElementById('companySelect').classList.remove('hidden');
+    document.getElementById('dateRangeSelect').classList.remove('hidden');
+    try {
+        let allCompanyFolders = await gdriveList(CONFIG.ROOT_FOLDER_ID, "mimeType='application/vnd.google-apps.folder'");
+        if (loggedInUser && !loggedInUser.is_super_admin) {
+            const userCompanyPattern = `Company = ${loggedInUser.company_id}`;
+            companyFolders = allCompanyFolders.filter(f => f.name === userCompanyPattern);
+        } else {
+            companyFolders = allCompanyFolders;
+        }
+        const select = document.getElementById('companyFilter');
+        select.innerHTML = companyFolders.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+        if (companyFolders.length > 0) await loadCompanyFiles(companyFolders[0].id);
+        else {
+            allData = []; filtered = []; updateStats([]); renderTable();
+            setLoading(false);
+            document.getElementById('sourceInfo').textContent = `❌ ไม่พบโฟลเดอร์สำหรับบริษัทของคุณ (Company = ${loggedInUser?.company_id})`;
+        }
+    } catch (err) { setLoading(true, '❌ ' + err.message); }
+}
+
+async function loadCompanyFiles(companyFolderId) {
+    // Check cache
+    const cacheKey = `vcache_company_${companyFolderId}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+        try {
+            allData = JSON.parse(cached);
+            setDateRangeFromData();
+            filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
+            document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์ (cached)`;
+            return;
+        } catch(e) { sessionStorage.removeItem(cacheKey); }
+    }
+
+    setLoading(true, 'กำลัง scan ทุกโฟลเดอร์...');
+    let folderCount = 0;
+    const wavFiles = await gdriveListAllRecursive(companyFolderId, (n) => {
+        folderCount += n;
+        setLoading(true, `กำลัง scan โฟลเดอร์... (${folderCount} พบแล้ว)`);
+    });
+
+    allData = [];
+    for (const f of wavFiles) {
+        const p = parseWavFilename(f);
+        if (p) allData.push(p);
+    }
+
+    // Cache
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(allData)); } catch(e) {}
+    allData.sort((a,b) => (b.date+b.time).localeCompare(a.date+a.time));
+    setDateRangeFromData();
+    filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
+    document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์`;
+}
+
+// Set date range inputs based on available data
+function setDateRangeFromData() {
+    if (allData.length === 0) return;
+    const dates = allData.map(r => r.date).filter(d => d);
+    dates.sort();
+    const fromInput = document.getElementById('dateFrom');
+    const toInput = document.getElementById('dateTo');
+    if (!fromInput.value) fromInput.value = dates[0];
+    if (!toInput.value) toInput.value = dates[dates.length - 1];
+}
+
+// ===== UI Event Handlers =====
+function switchSource() { init(); }
+async function handleCompanyChange() {
+    // Clear date range for fresh load
+    document.getElementById('dateFrom').value = '';
+    document.getElementById('dateTo').value = '';
+    await loadCompanyFiles(document.getElementById('companyFilter').value);
+}
+
+function setLoading(show, text) {
+    document.getElementById('loadingState').classList.toggle('hidden', !show);
+    document.getElementById('tableSection').classList.toggle('hidden', show);
+    if (text) document.getElementById('loadingText').textContent = text;
+}
+
+function updateStats(data) {
+    const total = data.length, inC = data.filter(r=>r.direction==='IN').length, outC = data.filter(r=>r.direction==='OUT').length;
+    document.querySelector('#statTotal span').textContent = total.toLocaleString() + ' สาย';
+    document.querySelector('#statIn span').textContent = inC.toLocaleString() + ' เข้า';
+    document.querySelector('#statOut span').textContent = outC.toLocaleString() + ' ออก';
+}
+
+function debounceSearch() { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(handleSearch, 300); }
+
+function handleSearch() {
+    const q = (document.getElementById('globalSearch').value + ' ' + document.getElementById('phoneSearch').value).trim().toLowerCase();
+    const dir = document.getElementById('dirFilter').value;
+    const dateFrom = document.getElementById('dateFrom')?.value || '';
+    const dateTo = document.getElementById('dateTo')?.value || '';
+    filtered = allData.filter(r => {
+        if (q) { const s = (r.caller+' '+r.receiver+' '+r.id+' '+r.filename).toLowerCase(); if (!q.split(/\s+/).every(t=>s.includes(t))) return false; }
+        if (dir && r.direction !== dir) return false;
+        if (dateFrom && r.date < dateFrom) return false;
+        if (dateTo && r.date > dateTo) return false;
+        return true;
+    });
+    currentPage = 1; updateStats(filtered); applySort(); renderTable();
+}
+
+async function resetFilters() {
+    document.getElementById('globalSearch').value = '';
+    document.getElementById('phoneSearch').value = '';
+    document.getElementById('dirFilter').value = '';
+    document.getElementById('dateFrom').value = '';
+    document.getElementById('dateTo').value = '';
+    // Clear all cached data and reload from Drive
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith('vcache_')) sessionStorage.removeItem(key);
+    }
+    const source = document.getElementById('dataSource').value;
+    if (source === 'gdrive') {
+        await loadCompanyFiles(document.getElementById('companyFilter').value);
+    } else {
+        filtered = [...allData]; currentPage = 1; updateStats(filtered); applySort(); renderTable();
+    }
+}
+
+function sortBy(field) {
+    if (sortField === field) sortAsc = !sortAsc;
+    else { sortField = field; sortAsc = field === 'id' || field === 'caller'; }
+    applySort(); renderTable();
+}
+function applySort() {
+    filtered.sort((a,b) => {
+        let va, vb;
+        if (sortField === 'date') { va = a.date+a.time; vb = b.date+b.time; }
+        else if (sortField === 'size' || sortField === 'duration') { va = a.size; vb = b.size; }
+        else { va = a[sortField]||''; vb = b[sortField]||''; }
+        if (va < vb) return sortAsc ? -1 : 1;
+        if (va > vb) return sortAsc ? 1 : -1;
+        return 0;
+    });
+}
+
+function changePageSize() { pageSizeVal = parseInt(document.getElementById('pageSize').value); currentPage = 1; renderTable(); }
+function prevPage() { if (currentPage > 1) { currentPage--; renderTable(); } }
+function nextPage() { if (currentPage < Math.ceil(filtered.length / pageSizeVal)) { currentPage++; renderTable(); } }
+
+function formatPhone(phone) {
+    if (!phone) return '—';
+    if (phone.startsWith('+66') && phone.length === 12) { const l = '0'+phone.slice(3); return l.slice(0,3)+'-'+l.slice(3,6)+'-'+l.slice(6); }
+    return phone;
+}
+function formatSize(b) { if (b<1024) return b+' B'; if (b<1048576) return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+function formatDate(d) { const [y,m,dd] = d.split('-'); const ms = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']; return dd+' '+ms[parseInt(m)]+' '+y; }
+function formatDuration(sizeBytes) {
+    // GSM 6.10 WAV: ~1625 bytes/sec (65-byte blocks, 320 samples at 8000Hz)
+    const secs = Math.round(Math.max(0, sizeBytes - 60) / 1625);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return `${m}:${String(s).padStart(2,'0')}`;
+}
+function downloadAudio(record) {
+    const src = document.getElementById('dataSource').value;
+    if (src === 'gdrive' && record.fileId) {
+        // Use proxy to convert GSM→PCM then download
+        const a = document.createElement('a');
+        a.href = `./audio_proxy.php?id=${record.fileId}`;
+        a.download = (record.file || record.id) + '.wav';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } else if (record.file) {
+        const a = document.createElement('a');
+        a.href = './20260120-20260131/' + record.file;
+        a.download = record.file;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+}
+
+function renderTable() {
+    const tbody = document.getElementById('tableBody');
+    const start = (currentPage-1)*pageSizeVal, end = Math.min(start+pageSizeVal, filtered.length);
+    const totalPages = Math.ceil(filtered.length/pageSizeVal)||1;
+    const page = filtered.slice(start, end);
+    document.getElementById('showingText').textContent = filtered.length===0 ? 'ไม่พบข้อมูล' : `แสดง ${start+1} - ${end} จาก ${filtered.length.toLocaleString()} รายการ`;
+    document.getElementById('pageInfo').textContent = `หน้า ${currentPage} / ${totalPages}`;
+    document.getElementById('filteredCount').textContent = filtered.length===allData.length ? '' : `กรอง ${filtered.length.toLocaleString()} จาก ${allData.length.toLocaleString()}`;
+    let html = '';
+    if (!page.length) html = '<tr><td colspan="10" class="px-4 py-12 text-center text-slate-400"><div class="flex flex-col items-center gap-2"><i class="w-12 h-12 text-slate-200" data-lucide="search-x"></i><span>ไม่พบรายการ</span></div></td></tr>';
+    for (const r of page) {
+        const uid = r.id+r.date+r.time, isP = currentPlayingId===uid;
+        const dir = r.direction==='IN'
+            ? '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full"><i class="w-3 h-3" data-lucide="phone-incoming"></i>IN</span>'
+            : '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full"><i class="w-3 h-3" data-lucide="phone-outgoing"></i>OUT</span>';
+        const pd = JSON.stringify(r).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        html += `<tr class="hover:bg-sky-50/40 transition-colors ${isP?'playing-row':''} fade-in">
+            <td class="px-4 py-3"><i class="w-4 h-4 ${r.direction==='IN'?'text-green-400':'text-orange-400'}" data-lucide="volume-2"></i></td>
+            <td class="px-4 py-3"><span class="font-mono font-semibold text-slate-700 text-xs bg-slate-100 px-2 py-0.5 rounded">${r.id}</span></td>
+            <td class="px-4 py-3"><div class="flex flex-col"><span class="text-slate-700 font-medium">${formatDate(r.date)}</span><span class="text-xs text-slate-400 font-mono">${r.time}</span></div></td>
+            <td class="px-4 py-3 font-mono text-slate-600 text-xs">${formatPhone(r.caller)}</td>
+            <td class="px-4 py-3 text-center">${dir}</td>
+            <td class="px-4 py-3 font-mono text-slate-600 text-xs">${formatPhone(r.receiver)}</td>
+            <td class="px-4 py-3 text-right text-xs text-slate-400">${formatSize(r.size)}</td>
+            <td class="px-4 py-3 text-right text-xs text-slate-500 font-mono">${formatDuration(r.size)}</td>
+            <td class="px-4 py-3 text-right">
+                <button onclick='playAudio(${pd})' class="p-1.5 ${isP?'bg-sky-600 text-white':'text-sky-600 hover:bg-sky-100'} rounded-lg transition-all" title="เล่น">
+                    <i class="w-5 h-5" data-lucide="${isP?'pause-circle':'play-circle'}"></i>
+                </button>
+            </td>
+            <td class="px-4 py-3 text-center">
+                <button onclick='downloadAudio(${pd})' class="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all" title="ดาวน์โหลด">
+                    <i class="w-5 h-5" data-lucide="download"></i>
+                </button>
+            </td></tr>`;
+    }
+    tbody.innerHTML = html; lucide.createIcons();
+}
+
+// ===== Audio =====
+function playAudio(record) {
+    const audio = document.getElementById('audioElement'), player = document.getElementById('audio-player');
+    const uid = record.id+record.date+record.time;
+    if (currentPlayingId===uid) { stopAudio(); return; }
+    currentPlayingId = uid;
+    document.getElementById('playerInfo').innerHTML = `<span class="text-[10px] font-mono text-slate-500">ID: ${record.id}</span><span class="text-[10px] font-mono ${record.direction==='IN'?'text-green-600 bg-green-50':'text-orange-600 bg-orange-50'} px-1.5 py-0.5 rounded">${record.direction}</span><span class="text-[10px] text-slate-400">${formatDate(record.date)} ${record.time}</span>`;
+    document.getElementById('playerCaller').textContent = formatPhone(record.caller);
+    document.getElementById('playerReceiver').textContent = formatPhone(record.receiver);
+    const src = document.getElementById('dataSource').value;
+    if (src === 'gdrive' && record.fileId) {
+        audio.src = `./audio_proxy.php?id=${record.fileId}`;
+    } else if (record.file) {
+        audio.src = './20260120-20260131/' + record.file;
+    }
+    audio.play().catch(e => console.log('Playback:', e));
+    player.classList.remove('hidden-player');
+    renderTable();
+    audio.onended = () => { currentPlayingId = null; renderTable(); };
+}
+function stopAudio() {
+    const a = document.getElementById('audioElement'); a.pause(); a.src = '';
+    currentPlayingId = null; document.getElementById('audio-player').classList.add('hidden-player'); renderTable();
+}
+
+// ===== Upload =====
+function showUploadModal() {
+    if (!accessToken) { alert('กรุณา Sign In ก่อนอัปโหลด'); return; }
+    pendingFiles = [];
+    document.getElementById('uploadFileList').innerHTML = '';
+    document.getElementById('uploadFileList').classList.add('hidden');
+    document.getElementById('uploadProgress').classList.add('hidden');
+    document.getElementById('startUploadBtn').disabled = true;
+    // Update target path
+    const company = document.getElementById('companyFilter').selectedOptions[0]?.textContent || '?';
+    document.getElementById('uploadTargetPath').textContent = `เก็บข้อมูลไฟล์เสียง / ${company} / (auto by filename)`;
+    document.getElementById('uploadModal').classList.remove('hidden');
+    lucide.createIcons();
+}
+function hideUploadModal() { document.getElementById('uploadModal').classList.add('hidden'); }
+
+function handleFileDrop(e) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.wav'));
+    addFiles(files);
+}
+function handleFileSelect(e) { addFiles(Array.from(e.target.files)); e.target.value = ''; }
+
+function addFiles(files) {
+    pendingFiles = pendingFiles.concat(files);
+    const list = document.getElementById('uploadFileList');
+    list.classList.remove('hidden');
+    list.innerHTML = pendingFiles.map((f, i) => `
+        <div class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-sm">
+            <div class="flex items-center gap-2 truncate">
+                <i class="w-4 h-4 text-sky-500 flex-shrink-0" data-lucide="file-audio"></i>
+                <span class="truncate">${f.name}</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400">${formatSize(f.size)}</span>
+                <button onclick="removeFile(${i})" class="text-slate-400 hover:text-red-500"><i class="w-4 h-4" data-lucide="x"></i></button>
+            </div>
+        </div>`).join('');
+    document.getElementById('startUploadBtn').disabled = pendingFiles.length === 0;
+    lucide.createIcons();
+}
+
+function removeFile(idx) { pendingFiles.splice(idx, 1); addFiles([]); }
+
+async function startUpload() {
+    if (!accessToken || pendingFiles.length === 0) return;
+    const companyId = document.getElementById('companyFilter').value;
+    const progress = document.getElementById('uploadProgress');
+    const bar = document.getElementById('uploadBar');
+    const status = document.getElementById('uploadStatus');
+    const percent = document.getElementById('uploadPercent');
+    progress.classList.remove('hidden');
+    document.getElementById('startUploadBtn').disabled = true;
+
+    let done = 0;
+    for (const file of pendingFiles) {
+        try {
+            // Parse date from filename to find/create month & day folders
+            const datePart = file.name.slice(0, 8); // e.g. "20260120"
+            const monthPart = datePart.slice(0, 6);  // e.g. "202601"
+
+            status.textContent = `${file.name}...`;
+            // Find/create month folder
+            const monthFolder = await findOrCreateFolder(monthPart, companyId);
+            // Find/create day folder
+            const dayFolder = await findOrCreateFolder(datePart, monthFolder.id);
+            // Upload file
+            await gdriveUploadFile(file, dayFolder.id);
+            done++;
+        } catch (err) {
+            console.error('Upload error:', file.name, err);
+            status.textContent = `❌ ${file.name}: ${err.message}`;
+            done++;
+        }
+        const p = Math.round((done / pendingFiles.length) * 100);
+        bar.style.width = p + '%';
+        percent.textContent = p + '%';
+    }
+
+    status.textContent = `✅ อัปโหลดสำเร็จ ${done}/${pendingFiles.length} ไฟล์`;
+    bar.classList.remove('bg-sky-500'); bar.classList.add('bg-emerald-500');
+    pendingFiles = [];
+
+    // Refresh data after 2 seconds
+    setTimeout(async () => {
+        hideUploadModal();
+        await handleDayChange();
+    }, 2000);
+}
+
+// ===== Create Company =====
+function showAddCompanyModal() {
+    if (!accessToken) { alert('กรุณา Sign In ก่อน'); return; }
+    document.getElementById('newCompanyName').value = '';
+    document.getElementById('addCompanyModal').classList.remove('hidden');
+    lucide.createIcons();
+}
+function hideAddCompanyModal() { document.getElementById('addCompanyModal').classList.add('hidden'); }
+
+async function createCompanyFolder() {
+    const name = document.getElementById('newCompanyName').value.trim();
+    if (!name) { alert('กรุณาใส่ชื่อบริษัท'); return; }
+    try {
+        await gdriveCreateFolder(name, CONFIG.ROOT_FOLDER_ID);
+        alert(`สร้างโฟลเดอร์ "${name}" สำเร็จ!`);
+        hideAddCompanyModal();
+        await loadGDriveCompanies();
+    } catch (err) {
+        alert('❌ เกิดข้อผิดพลาด: ' + err.message);
+    }
+}
+
+// ===== Keyboard =====
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey||e.metaKey) && e.key==='k') { e.preventDefault(); document.getElementById('globalSearch').focus(); }
+    if (e.key==='Escape') { document.getElementById('globalSearch').blur(); hideUploadModal(); hideAddCompanyModal(); }
+    // Enter on login
+    if (e.key==='Enter' && !document.getElementById('loginScreen').classList.contains('hidden')) { doLogin(); }
+});
+
+// ===== Start =====
+document.addEventListener('DOMContentLoaded', () => {
+    lucide.createIcons();
+    // Wait for GIS library to load
+    const waitGIS = setInterval(() => {
+        if (typeof google !== 'undefined' && google.accounts) {
+            clearInterval(waitGIS);
+            initGIS();
+        }
+    }, 200);
+    // Check existing session
+    const saved = sessionStorage.getItem('voicecall_user');
+    if (saved) {
+        try {
+            loggedInUser = JSON.parse(saved);
+            showDashboard();
+        } catch(e) { sessionStorage.removeItem('voicecall_user'); }
+    }
+});
+</script>
+</body>
+</html>
