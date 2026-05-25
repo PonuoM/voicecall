@@ -13,4 +13,10 @@ return [
         'database' => 'YOUR_DB_NAME',
         'charset'  => 'utf8mb4',
     ],
+    'api' => [
+        'auth_token' => 'voicecall_secret_token_2026', // Example secure token
+    ],
+    'google_drive' => [
+        'api_key' => 'AIzaSyCCIywRsoHuBzVTm-B-FA8N7VzAcECIEBE',
+    ],
 ];
