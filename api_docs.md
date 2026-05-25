@@ -1,6 +1,12 @@
 # Audio Search API Documentation
 
-This API allows you to search and retrieve voice call recordings from Google Drive based on a phone number and an optional date range. It searches directly using the Google Drive API and filters the results to match the exact caller or receiver.
+This API allows you to search and retrieve voice call recordings from Google Drive based on a phone number and an optional date range. 
+
+**Key Features:**
+- Uses **Pure PHP (No Composer)** for lightweight deployment.
+- Authenticates with Google Drive using a Service Account JSON key (`service-account.json`).
+- Intelligently queries Google Drive taking into account Google's prefix tokenization rules (e.g. supporting `%2B` or `+` formatted prefixes).
+- Parses specific PBX filename conventions to extract caller, receiver, and call direction.
 
 ## Endpoint
 `GET /api_search_audio.php`
@@ -48,6 +54,18 @@ The API returns a JSON response.
     "count": 2,
     "data": [
         {
+            "id": "RZIJ",
+            "date": "2026-05-24",
+            "time": "14:49:33",
+            "caller": "+66945547598",
+            "receiver": "+66639711435",
+            "direction": "IN",
+            "filename": "20260524_144933_RZIJ-%2B66945547598-%2B66639711435-IN.wav",
+            "size": 9216,
+            "fileId": "17GwY7yxD11qqeTcR5QsTUpT6rdFkjVVg",
+            "link": "https://drive.google.com/file/d/17GwY7yxD11qqeTcR5QsTUpT6rdFkjVVg/view"
+        },
+        {
             "id": "20260226094814",
             "date": "2026-02-26",
             "time": "09:48:14",
@@ -58,18 +76,6 @@ The API returns a JSON response.
             "size": 150230,
             "fileId": "1hT4yxRs47KC09Tld8JaUoze9MBu_1192",
             "link": "https://drive.google.com/file/d/1hT4yxRs47KC09Tld8JaUoze9MBu_1192/view"
-        },
-        {
-            "id": "20260220143000",
-            "date": "2026-02-20",
-            "time": "14:30:00",
-            "caller": "+6621234567",
-            "receiver": "+66945547598",
-            "direction": "IN",
-            "filename": "20260220_143000_calldata-IN.wav",
-            "size": 94812,
-            "fileId": "1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1uV",
-            "link": "https://drive.google.com/file/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1uV/view"
         }
     ]
 }

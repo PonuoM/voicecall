@@ -11,11 +11,18 @@ if (!file_exists($configPath)) {
 }
 $config = require $configPath;
 
-$API_KEY = $config['google_drive']['api_key'] ?? '';
+$SERVICE_ACCOUNT_JSON = $config['google_drive']['service_account_json'] ?? __DIR__ . '/service-account.json';
+$FOLDER_ID = $config['google_drive']['folder_id'] ?? '';
 $AUTH_TOKEN = $config['api']['auth_token'] ?? '';
 
+if (!file_exists($SERVICE_ACCOUNT_JSON)) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Service account JSON file missing. Please create service-account.json']);
+    exit;
+}
+
 // Authentication check
-$headers = getallheaders();
+$headers = function_exists('getallheaders') ? getallheaders() : [];
 $authHeader = $headers['Authorization'] ?? '';
 if (empty($authHeader) && isset($_SERVER['HTTP_AUTHORIZATION'])) {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
@@ -80,48 +87,105 @@ if (strpos($searchPhone, '0') === 0 && strlen($searchPhone) >= 9) {
     $searchPhone = substr($searchPhone, 3);
 }
 
-// Fetch from Google Drive API with pagination handling
-$q = "name contains '{$searchPhone}' and mimeType='audio/wav' and trashed=false";
-$baseUrl = "https://www.googleapis.com/drive/v3/files?q=" . urlencode($q) . "&key=" . $API_KEY . "&fields=files(id,name,size,mimeType),nextPageToken&pageSize=1000&orderBy=name";
-
-$allGoogleFiles = [];
-$pageToken = '';
-
-do {
-    $url = $baseUrl;
-    if (!empty($pageToken)) {
-        $url .= "&pageToken=" . urlencode($pageToken);
+// Helper: Get JWT Access Token manually
+function getGoogleAccessToken($jsonFilePath) {
+    $json = json_decode(file_get_contents($jsonFilePath), true);
+    if (!$json || !isset($json['private_key']) || !isset($json['client_email'])) {
+        throw new Exception("Invalid service account JSON");
     }
-    
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
+
+    $header = json_encode(['alg' => 'RS256', 'typ' => 'JWT']);
+    $now = time();
+    $claim = json_encode([
+        'iss' => $json['client_email'],
+        'scope' => 'https://www.googleapis.com/auth/drive.readonly',
+        'aud' => 'https://oauth2.googleapis.com/token',
+        'exp' => $now + 3600,
+        'iat' => $now
+    ]);
+
+    $b64Header = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($header));
+    $b64Claim = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($claim));
+
+    $signature = '';
+    openssl_sign($b64Header . '.' . $b64Claim, $signature, $json['private_key'], 'sha256');
+    $b64Sig = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
+
+    $jwt = $b64Header . '.' . $b64Claim . '.' . $b64Sig;
+
+    $ch = curl_init('https://oauth2.googleapis.com/token');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+        'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        'assertion' => $jwt
+    ]));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+
     $response = curl_exec($ch);
-    
     if (curl_errno($ch)) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'cURL error: ' . curl_error($ch)]);
-        curl_close($ch);
-        exit;
+        throw new Exception('cURL auth error: ' . curl_error($ch));
     }
     curl_close($ch);
-    
+
     $data = json_decode($response, true);
+    if (isset($data['access_token'])) return $data['access_token'];
+    throw new Exception('Failed to get token: ' . $response);
+}
+
+// Fetch from Google Drive API using Service Account (Pure PHP)
+$allGoogleFiles = [];
+
+try {
+    $accessToken = getGoogleAccessToken($SERVICE_ACCOUNT_JSON);
     
-    if (isset($data['error'])) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Google API error: ' . $data['error']['message']]);
-        exit;
+    $q = "(name contains '2B66{$searchPhone}' or name contains '66{$searchPhone}' or name contains '{$searchPhone}' or name contains '0{$searchPhone}') and mimeType='audio/wav' and trashed=false";
+    if (!empty($FOLDER_ID) && $FOLDER_ID !== 'ใส่รหัสโฟลเดอร์_GOOGLE_DRIVE_ที่นี่') {
+        $q .= " and '{$FOLDER_ID}' in parents";
     }
+
+    $pageToken = '';
+    $baseUrl = "https://www.googleapis.com/drive/v3/files";
     
-    if (isset($data['files']) && is_array($data['files'])) {
-        $allGoogleFiles = array_merge($allGoogleFiles, $data['files']);
-    }
+    do {
+        $url = $baseUrl . "?q=" . urlencode($q) . "&fields=" . urlencode("files(id,name,size,mimeType),nextPageToken") . "&pageSize=1000&orderBy=name";
+        if (!empty($pageToken)) {
+            $url .= "&pageToken=" . urlencode($pageToken);
+        }
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer {$accessToken}"]);
+        
+        $response = curl_exec($ch);
+        
+        if (curl_errno($ch)) {
+            throw new Exception('cURL search error: ' . curl_error($ch));
+        }
+        curl_close($ch);
+        
+        $data = json_decode($response, true);
+        
+        if (isset($data['error'])) {
+            throw new Exception($data['error']['message']);
+        }
+        
+        if (isset($data['files']) && is_array($data['files'])) {
+            $allGoogleFiles = array_merge($allGoogleFiles, $data['files']);
+        }
+        
+        $pageToken = $data['nextPageToken'] ?? '';
+        
+    } while (!empty($pageToken));
     
-    $pageToken = $data['nextPageToken'] ?? '';
-    
-} while (!empty($pageToken));
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Google API error: ' . $e->getMessage()]);
+    exit;
+}
 
 $results = [];
 
