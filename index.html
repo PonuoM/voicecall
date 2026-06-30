@@ -185,6 +185,10 @@
                     class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm">
                     <i class="w-4 h-4" data-lucide="rotate-ccw"></i> รีเซ็ต
                 </button>
+                <button id="syncIndexBtn" onclick="syncDriveIndex()"
+                    class="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                    <i class="w-4 h-4" data-lucide="refresh-cw"></i> ซิงค์เสียงล่าสุด
+                </button>
                 <button id="uploadBtn" onclick="showUploadModal()"
                     class="hidden bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
                     <i class="w-4 h-4" data-lucide="upload-cloud"></i> อัปโหลด
@@ -243,6 +247,8 @@
                         <th class="px-4 py-3 cursor-pointer hover:text-sky-600 text-right" onclick="sortBy('duration')">ระยะเวลา <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
                         <th class="px-4 py-3 text-right">เล่น</th>
                         <th class="px-4 py-3 text-center">ดาวน์โหลด</th>
+                        <th class="px-4 py-3 text-center">ลิงก์</th>
+                        <th class="px-4 py-3 text-center">AI</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody" class="divide-y divide-slate-100 text-sm"></tbody>
@@ -363,6 +369,23 @@
     </div>
 </div>
 
+<!-- AI Insights Modal -->
+<div id="aiModal" class="fixed inset-0 z-[100] hidden">
+    <div class="modal-backdrop absolute inset-0" onclick="hideAiModal()"></div>
+    <div class="relative mx-auto mt-10 w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 fade-in max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="w-5 h-5 text-violet-500" data-lucide="sparkles"></i>
+                ผลวิเคราะห์ AI
+            </h2>
+            <button onclick="hideAiModal()" class="text-slate-400 hover:text-slate-600">
+                <i class="w-5 h-5" data-lucide="x"></i>
+            </button>
+        </div>
+        <div id="aiModalBody"></div>
+    </div>
+</div>
+
 <script>
 // ===== CONFIG =====
 const CONFIG = {
@@ -371,6 +394,7 @@ const CONFIG = {
     ROOT_FOLDER_ID: '135GAP4FYM7b7LwVaVwdBHPFYUwn7T5rx',
     SCOPES: 'https://www.googleapis.com/auth/drive',
     LOGIN_API_URL: './login.php', // PHP API endpoint
+    AI_API_URL: './api/index.php', // AI pipeline API (separate from LOGIN_API_URL)
 };
 
 // ===== State =====
@@ -390,6 +414,8 @@ let accessToken = null;
 let tokenClient = null;
 let userName = null;
 let loggedInUser = null; // DB user info from login
+let aiToken = null; // bearer token for AI_API_URL (minted by login.php)
+let aiStatusMap = {}; // uid -> {status, conversationId, error}
 
 // ===== Login System =====
 async function doLogin() {
@@ -409,6 +435,7 @@ async function doLogin() {
         const data = await res.json();
         if (data.success) {
             loggedInUser = data.user;
+            aiToken = data.user.api_token || null;
             sessionStorage.setItem('voicecall_user', JSON.stringify(data.user));
             showDashboard();
         } else {
@@ -429,6 +456,8 @@ function showLoginError(msg) {
 
 function doLogout() {
     loggedInUser = null;
+    aiToken = null;
+    aiStatusMap = {};
     sessionStorage.removeItem('voicecall_user');
     if (accessToken) { google.accounts.oauth2.revoke(accessToken, ()=>{}); accessToken = null; }
     document.getElementById('loginScreen').classList.remove('hidden');
@@ -653,9 +682,11 @@ async function gdriveListAllRecursive(folderId, statusCallback) {
     const subFolders = items.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
     allWavFiles = allWavFiles.concat(wavFiles);
     if (statusCallback && subFolders.length > 0) statusCallback(subFolders.length);
-    // Recurse into sub-folders (parallel, max 5 at a time)
-    for (let i = 0; i < subFolders.length; i += 5) {
-        const batch = subFolders.slice(i, i + 5);
+    // Recurse into sub-folders (parallel, max 24 at a time - Drive API tolerates this fine,
+    // and at 5-at-a-time a deep tree with hundreds of day-folders took 60+ seconds to scan cold)
+    const CONCURRENCY = 24;
+    for (let i = 0; i < subFolders.length; i += CONCURRENCY) {
+        const batch = subFolders.slice(i, i + CONCURRENCY);
         const results = await Promise.all(batch.map(f => gdriveListAllRecursive(f.id, null)));
         for (const files of results) allWavFiles = allWavFiles.concat(files);
     }
@@ -685,18 +716,71 @@ async function loadGDriveCompanies() {
     } catch (err) { setLoading(true, '❌ ' + err.message); }
 }
 
+// Cache survives across tabs/logins (localStorage, not sessionStorage) with a TTL. In practice
+// this only helps smaller companies - localStorage's ~5-10MB-per-origin quota is well under the
+// ~26MB JSON payload a 100k+-file company produces, so writeCompanyCache() silently no-ops via
+// its try/catch for those (confirmed: QuotaExceededError). That's fine - the real fix for big
+// companies is fetchFromIndexApi() below being fast on every load regardless of cache.
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function readCompanyCache(companyFolderId) {
+    try {
+        const raw = localStorage.getItem(`vcache_company_${companyFolderId}`);
+        if (!raw) return null;
+        const { data, savedAt } = JSON.parse(raw);
+        if (!Array.isArray(data) || Date.now() - savedAt > CACHE_TTL_MS) return null;
+        return data;
+    } catch (e) { return null; }
+}
+
+function writeCompanyCache(companyFolderId, data) {
+    try {
+        localStorage.setItem(`vcache_company_${companyFolderId}`, JSON.stringify({ data, savedAt: Date.now() }));
+    } catch (e) {}
+}
+
+// Fast path: read the server-side index (api/cron/sync_gdrive_index.php keeps it warm) instead
+// of doing the live recursive Drive scan in-browser. Falls back to the live scan (null return)
+// if we have no token, the request fails, or the index is simply empty for this company (e.g.
+// the cron hasn't synced it yet) - the live scan is the fallback of last resort, not a normal path.
+async function fetchFromIndexApi(companyFolderId) {
+    if (!aiToken) return null;
+    const folder = companyFolders.find(f => f.id === companyFolderId);
+    const m = folder && folder.name.match(/Company\s*=\s*(\d+)/i);
+    if (!m) return null;
+    try {
+        const res = await fetch(`${CONFIG.AI_API_URL}/drive-index?company_id=${m[1]}`, {
+            headers: { 'Authorization': 'Bearer ' + aiToken }
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.ok || !Array.isArray(data.data) || data.data.length === 0) return null;
+        return data.data;
+    } catch (e) { return null; }
+}
+
 async function loadCompanyFiles(companyFolderId) {
-    // Check cache
-    const cacheKey = `vcache_company_${companyFolderId}`;
-    const cached = sessionStorage.getItem(cacheKey);
+    const cached = readCompanyCache(companyFolderId);
     if (cached) {
-        try {
-            allData = JSON.parse(cached);
-            setDateRangeFromData();
-            filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
-            document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์ (cached)`;
-            return;
-        } catch(e) { sessionStorage.removeItem(cacheKey); }
+        allData = cached;
+        setDateRangeFromData();
+        filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
+        document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์ (cached)`;
+        syncAiStatusFromServer();
+        return;
+    }
+
+    setLoading(true, 'กำลังโหลดรายการที่ index ไว้...');
+    const indexed = await fetchFromIndexApi(companyFolderId);
+    if (indexed) {
+        allData = indexed;
+        writeCompanyCache(companyFolderId, allData);
+        allData.sort((a,b) => (b.date+b.time).localeCompare(a.date+a.time));
+        setDateRangeFromData();
+        filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
+        document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์ (จาก index)`;
+        syncAiStatusFromServer();
+        return;
     }
 
     setLoading(true, 'กำลัง scan ทุกโฟลเดอร์...');
@@ -712,12 +796,81 @@ async function loadCompanyFiles(companyFolderId) {
         if (p) allData.push(p);
     }
 
-    // Cache
-    try { sessionStorage.setItem(cacheKey, JSON.stringify(allData)); } catch(e) {}
+    writeCompanyCache(companyFolderId, allData);
     allData.sort((a,b) => (b.date+b.time).localeCompare(a.date+a.time));
     setDateRangeFromData();
     filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
     document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์`;
+    syncAiStatusFromServer();
+}
+
+/**
+ * aiStatusMap is plain in-memory JS state, wiped on every page refresh - without this, a row
+ * that was already analyzed in a previous session shows the "not yet analyzed" icon again until
+ * clicked (clicking is safe now, see analyzeCall, but the icon itself stays wrong until then).
+ * Pulls every registered conversation's status for this company in one lean request and matches
+ * by audio_ref against the currently loaded rows.
+ */
+async function syncAiStatusFromServer() {
+    if (!aiToken) return;
+    try {
+        const res = await fetch(`${CONFIG.AI_API_URL}/conversations/status-map`, { headers: aiHeaders() });
+        const data = await res.json();
+        if (!res.ok || !data.ok) return;
+        const byRef = {};
+        for (const row of data.data) { byRef[row.audio_ref] = row; }
+        for (const r of allData) {
+            const ref = r.fileId || r.file;
+            const match = ref ? byRef[ref] : null;
+            if (match) {
+                aiStatusMap[r.id + r.date + r.time] = { status: match.status, conversationId: match.id };
+            }
+        }
+        renderTable();
+    } catch (err) {
+        // best-effort - icons just won't pre-populate, clicking still works correctly either way
+    }
+}
+
+/**
+ * Manual trigger for the server-side Drive index sync (POST /drive-index/sync) - lets a user
+ * pull in newly-added recordings on demand instead of waiting on the cron schedule (which can
+ * silently not be running at all - this button doesn't depend on it). Scoped to the currently
+ * selected company only, so it's a one-company scan instead of the cron's full sweep. The
+ * response carries before/after row counts from the DB itself, so the result shown here is
+ * direct proof the new files landed in gdrive_file_index, not just that the Drive scan ran.
+ */
+async function syncDriveIndex() {
+    if (!aiToken) { alert('ไม่พบ AI token กรุณาเข้าสู่ระบบใหม่'); return; }
+    const companyFolderId = document.getElementById('companyFilter').value;
+    const folder = companyFolders.find(f => f.id === companyFolderId);
+    const m = folder && folder.name.match(/Company\s*=\s*(\d+)/i);
+    if (!m) { alert('ไม่พบรหัสบริษัทสำหรับโฟลเดอร์นี้'); return; }
+
+    const btn = document.getElementById('syncIndexBtn');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="w-4 h-4 animate-spin" data-lucide="loader-2"></i> กำลังซิงค์... (อาจใช้เวลาหลายนาที)';
+    lucide.createIcons();
+
+    try {
+        const res = await fetch(`${CONFIG.AI_API_URL}/drive-index/sync?company_id=${m[1]}`, { method: 'POST', headers: aiHeaders() });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || 'ซิงค์ไม่สำเร็จ');
+
+        alert(`ซิงค์เสร็จแล้ว\n\nไฟล์ใหม่ที่พบ (ยังไม่มีในระบบ): ${data.new_files.toLocaleString()} ไฟล์\nอัพเข้า DB สำเร็จ: ${data.new_files.toLocaleString()} ไฟล์\nไฟล์ทั้งหมดในระบบตอนนี้: ${data.after_count.toLocaleString()} ไฟล์\n\n(ยืนยันจากฐานข้อมูลจริง: ${data.before_count.toLocaleString()} -> ${data.after_count.toLocaleString()} แถว)`);
+
+        // loadCompanyFiles() prefers localStorage cache over a fresh fetch - clear it first or
+        // the reload below would just show the same stale list the sync was meant to fix.
+        try { localStorage.removeItem(`vcache_company_${companyFolderId}`); } catch (e) {}
+        await loadCompanyFiles(companyFolderId);
+    } catch (err) {
+        alert('ซิงค์ไม่สำเร็จ: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        lucide.createIcons();
+    }
 }
 
 // Set date range inputs based on available data
@@ -777,9 +930,9 @@ async function resetFilters() {
     document.getElementById('dateFrom').value = '';
     document.getElementById('dateTo').value = '';
     // Clear all cached data and reload from Drive
-    for (let i = sessionStorage.length - 1; i >= 0; i--) {
-        const key = sessionStorage.key(i);
-        if (key && key.startsWith('vcache_')) sessionStorage.removeItem(key);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('vcache_')) localStorage.removeItem(key);
     }
     const source = document.getElementById('dataSource').value;
     if (source === 'gdrive') {
@@ -839,6 +992,61 @@ function downloadAudio(record) {
     }
 }
 
+function copyDriveLink(fileId, btn) {
+    if (!fileId) return;
+    const link = `https://drive.google.com/file/d/${fileId}/view`;
+
+    const showSuccess = () => {
+        const icon = btn.querySelector('i');
+        const oldIcon = icon.getAttribute('data-lucide');
+        icon.setAttribute('data-lucide', 'check');
+        icon.classList.remove('text-slate-400');
+        icon.classList.add('text-green-500');
+        lucide.createIcons();
+        setTimeout(() => {
+            icon.setAttribute('data-lucide', oldIcon);
+            icon.classList.remove('text-green-500');
+            icon.classList.add('text-slate-400');
+            lucide.createIcons();
+        }, 2000);
+    };
+
+    const fallbackCopy = (text) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+
+        // Ensure textarea is not hidden from layout but invisible
+        textArea.style.position = "fixed";
+        textArea.style.top = "0";
+        textArea.style.left = "0";
+        textArea.style.width = "2em";
+        textArea.style.height = "2em";
+        textArea.style.padding = "0";
+        textArea.style.border = "none";
+        textArea.style.outline = "none";
+        textArea.style.boxShadow = "none";
+        textArea.style.background = "transparent";
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+            document.execCommand('copy');
+            showSuccess();
+        } catch (err) {
+            console.error('Fallback copy failed', err);
+        }
+        document.body.removeChild(textArea);
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(link).then(showSuccess).catch(err => fallbackCopy(link));
+    } else {
+        fallbackCopy(link);
+    }
+}
+
 function renderTable() {
     const tbody = document.getElementById('tableBody');
     const start = (currentPage-1)*pageSizeVal, end = Math.min(start+pageSizeVal, filtered.length);
@@ -848,9 +1056,10 @@ function renderTable() {
     document.getElementById('pageInfo').textContent = `หน้า ${currentPage} / ${totalPages}`;
     document.getElementById('filteredCount').textContent = filtered.length===allData.length ? '' : `กรอง ${filtered.length.toLocaleString()} จาก ${allData.length.toLocaleString()}`;
     let html = '';
-    if (!page.length) html = '<tr><td colspan="10" class="px-4 py-12 text-center text-slate-400"><div class="flex flex-col items-center gap-2"><i class="w-12 h-12 text-slate-200" data-lucide="search-x"></i><span>ไม่พบรายการ</span></div></td></tr>';
+    if (!page.length) html = '<tr><td colspan="12" class="px-4 py-12 text-center text-slate-400"><div class="flex flex-col items-center gap-2"><i class="w-12 h-12 text-slate-200" data-lucide="search-x"></i><span>ไม่พบรายการ</span></div></td></tr>';
     for (const r of page) {
         const uid = r.id+r.date+r.time, isP = currentPlayingId===uid;
+        const aiCell = renderAiCell(uid, r);
         const dir = r.direction==='IN'
             ? '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full"><i class="w-3 h-3" data-lucide="phone-incoming"></i>IN</span>'
             : '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full"><i class="w-3 h-3" data-lucide="phone-outgoing"></i>OUT</span>';
@@ -873,10 +1082,196 @@ function renderTable() {
                 <button onclick='downloadAudio(${pd})' class="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all" title="ดาวน์โหลด">
                     <i class="w-5 h-5" data-lucide="download"></i>
                 </button>
-            </td></tr>`;
+            </td>
+            <td class="px-4 py-3 text-center">
+                ${r.fileId ? `<button onclick="copyDriveLink('${r.fileId}', this)" class="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all" title="คัดลอกลิงก์ Google Drive">
+                    <i class="w-5 h-5" data-lucide="link"></i>
+                </button>` : `<span class="text-xs text-slate-300">-</span>`}
+            </td>
+            <td class="px-4 py-3 text-center">${aiCell}</td></tr>`;
     }
     tbody.innerHTML = html; lucide.createIcons();
 }
+
+// ===== AI Pipeline =====
+const AI_BUSY_STATUSES = ['pending','transcribing','analyzing','extracting','checking_compliance','indexing'];
+
+function renderAiCell(uid, record) {
+    const st = aiStatusMap[uid];
+    if (!st) {
+        return `<button onclick='analyzeCall(${JSON.stringify(record).replace(/'/g,"&#39;")})' class="p-1.5 text-violet-500 hover:bg-violet-50 rounded-lg transition-all" title="วิเคราะห์ด้วย AI">
+            <i class="w-5 h-5" data-lucide="sparkles"></i>
+        </button>`;
+    }
+    if (AI_BUSY_STATUSES.includes(st.status)) {
+        return `<span class="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 px-2 py-1 rounded-full">
+            <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+            ${st.status}
+        </span>`;
+    }
+    if (st.status === 'completed') {
+        return `<button onclick='viewAiResult(${JSON.stringify(uid)})' class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="ดูผล AI">
+            <i class="w-5 h-5" data-lucide="check-circle-2"></i>
+        </button>`;
+    }
+    // failed
+    return `<button onclick='analyzeCall(${JSON.stringify(record).replace(/'/g,"&#39;")})' class="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="${(st.error||'ล้มเหลว').replace(/"/g,'&quot;')} (กดเพื่อลองใหม่)">
+        <i class="w-5 h-5" data-lucide="alert-circle"></i>
+    </button>`;
+}
+
+function aiHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiToken };
+}
+
+async function analyzeCall(record) {
+    if (!aiToken) { alert('ไม่พบ AI token กรุณาเข้าสู่ระบบใหม่'); return; }
+    const uid = record.id + record.date + record.time;
+    const source = document.getElementById('dataSource').value === 'local' ? 'local' : 'gdrive';
+    const body = {
+        source,
+        fileId: source === 'gdrive' ? record.fileId : undefined,
+        file: source === 'local' ? record.file : undefined,
+        id: record.id, date: record.date, time: record.time,
+        caller: record.caller, receiver: record.receiver, direction: record.direction, size: record.size,
+    };
+
+    aiStatusMap[uid] = { status: 'pending' };
+    renderTable();
+    try {
+        const regRes = await fetch(`${CONFIG.AI_API_URL}/conversations`, { method: 'POST', headers: aiHeaders(), body: JSON.stringify(body) });
+        const regData = await regRes.json();
+        if (!regRes.ok || !regData.ok) throw new Error(regData.message || 'ลงทะเบียนไม่สำเร็จ');
+        const conversationId = regData.conversation.id;
+
+        // Already analyzed in a previous session (aiStatusMap resets on page refresh, but the
+        // server remembers) - show the existing result instead of deleting it and re-running the
+        // whole paid pipeline from scratch.
+        if (regData.conversation.status === 'completed') {
+            aiStatusMap[uid] = { status: 'completed', conversationId };
+            renderTable();
+            await viewAiResult(uid);
+            return;
+        }
+
+        aiStatusMap[uid] = { status: 'transcribing', conversationId };
+        renderTable();
+
+        const procRes = await fetch(`${CONFIG.AI_API_URL}/conversations/${conversationId}/process`, { method: 'POST', headers: aiHeaders() });
+        const procData = await procRes.json();
+        if (!procRes.ok || !procData.ok) throw new Error(procData.error || 'วิเคราะห์ไม่สำเร็จ');
+
+        aiStatusMap[uid] = { status: 'completed', conversationId };
+        renderTable();
+        await viewAiResult(uid);
+    } catch (err) {
+        aiStatusMap[uid] = { status: 'failed', error: err.message };
+        renderTable();
+    }
+}
+
+async function viewAiResult(uid) {
+    const st = aiStatusMap[uid];
+    if (!st || !st.conversationId) return;
+    document.getElementById('aiModal').classList.remove('hidden');
+    document.getElementById('aiModalBody').innerHTML = '<div class="text-center py-12 text-slate-400">กำลังโหลด...</div>';
+    try {
+        const res = await fetch(`${CONFIG.AI_API_URL}/conversations/${st.conversationId}`, { headers: aiHeaders() });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || 'โหลดข้อมูลไม่สำเร็จ');
+        renderAiModalBody(data);
+    } catch (err) {
+        document.getElementById('aiModalBody').innerHTML = `<div class="text-center py-12 text-red-500">เกิดข้อผิดพลาด: ${err.message}</div>`;
+    }
+}
+
+function renderAiModalBody(data) {
+    const c = data.conversation, s = data.summary, e = data.entities, cr = data.compliance_report, viol = data.violations || [];
+    const sentimentColor = { positive: 'text-green-600 bg-green-50', negative: 'text-red-600 bg-red-50', mixed: 'text-amber-600 bg-amber-50', neutral: 'text-slate-600 bg-slate-100' };
+    const sevColor = { critical: 'text-red-700 bg-red-100', high: 'text-orange-700 bg-orange-100', medium: 'text-amber-700 bg-amber-100', low: 'text-slate-600 bg-slate-100' };
+
+    let html = '';
+    if (c) {
+        html += `<div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs bg-slate-50 rounded-lg p-2.5">
+            <span class="text-slate-400">ผู้โทร:</span> <span class="font-mono font-medium">${formatPhone(c.caller_phone)}</span>
+            <i class="w-3 h-3 text-slate-300" data-lucide="arrow-right"></i>
+            <span class="text-slate-400">ผู้รับ:</span> <span class="font-mono font-medium">${formatPhone(c.receiver_phone)}</span>
+            <span class="text-slate-300">|</span>
+            <span class="text-slate-400">${c.call_date||''} ${c.call_time||''}</span>
+        </div>`;
+    }
+    if (s) {
+        html += `<div class="mb-5">
+            <div class="flex items-center justify-between mb-1.5">
+                <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide">สรุปการสนทนา</h4>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${sentimentColor[s.customer_sentiment]||sentimentColor.neutral}">${s.customer_sentiment||'-'}</span>
+            </div>
+            <p class="text-sm text-slate-700">${s.executive_summary||'-'}</p>
+            ${(s.important_keywords||[]).length ? `<div class="flex flex-wrap gap-1 mt-2">${s.important_keywords.map(k=>`<span class="text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">${k}</span>`).join('')}</div>` : ''}
+        </div>`;
+    }
+    if (e || c) {
+        // Prefer real database matches (ERP phone match for customer/employee, product catalog
+        // match for product/price) over what the LLM merely heard in the audio - speech-derived
+        // values are only a fallback for when no database match exists at all.
+        const customerVal = (c && c.erp_customer_name) || (e && e.customer_name) || '-';
+        const customerSrc = (c && c.erp_customer_name) ? '' : (e && e.customer_name ? ' <span class="text-slate-400">(จากเสียง)</span>' : '');
+        const employeeVal = (c && c.erp_employee_name) || (e && e.employee_name) || '-';
+        const employeeSrc = (c && c.erp_employee_name) ? '' : (e && e.employee_name ? ' <span class="text-slate-400">(จากเสียง)</span>' : (e ? ' <span class="text-slate-400">(ไม่พบในระบบ/ไม่ได้บอกชื่อในสาย)</span>' : ''));
+        const productVal = (e && e.matched_product_name) || (e && e.product) || '-';
+        const productSrc = (e && e.matched_product_name) ? '' : (e && e.product ? ' <span class="text-slate-400">(จากเสียง, ไม่พบในแคตตาล็อก)</span>' : '');
+        const priceVal = (e && e.matched_product_price) ? `${e.matched_product_price} บาท` : ((e && e.price) ? `${e.price} บาท (จากเสียง)` : '-');
+
+        html += `<div class="mb-3 grid grid-cols-2 gap-3 text-xs">
+            <div><span class="text-slate-400">ลูกค้า:</span> <span class="font-medium">${customerVal}</span>${customerSrc}</div>
+            <div><span class="text-slate-400">พนักงาน:</span> <span class="font-medium">${employeeVal}</span>${employeeSrc}</div>
+            <div><span class="text-slate-400">สินค้า:</span> <span class="font-medium">${productVal}</span>${productSrc}</div>
+            <div><span class="text-slate-400">ราคา:</span> <span class="font-medium">${priceVal}</span></div>
+            ${e ? `<div><span class="text-slate-400">หมวดหมู่:</span> <span class="font-medium">${e.issue_category||'-'}</span></div>` : ''}
+            ${e ? `<div><span class="text-slate-400">ความสำคัญ:</span> <span class="font-medium">${e.priority||'-'}</span></div>` : ''}
+        </div>`;
+        if (e && e.linked_order_id) {
+            html += `<div class="mb-5 bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs">
+                <span class="text-slate-500">ออเดอร์จริงที่เกี่ยวข้อง:</span> <span class="font-semibold">#${e.linked_order_id}</span> วันที่ ${e.linked_order_date} ยอดรวม ${e.linked_order_total} บาท
+            </div>`;
+        }
+    }
+    html += `<div class="mb-5">
+        <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">ตรวจสอบ Compliance</h4>
+        ${cr ? `<span class="text-[11px] font-bold px-2 py-1 rounded-full ${cr.overall_status==='compliant'?'text-green-700 bg-green-100':'text-red-700 bg-red-100'}">${cr.overall_status}</span>` : '<span class="text-slate-400 text-xs">-</span>'}
+        ${viol.map(v => `<div class="mt-2 border-l-2 border-red-300 pl-3">
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${sevColor[v.severity]||sevColor.low}">${v.severity}</span>
+            <span class="text-xs font-semibold ml-1">${v.rule_name}</span>
+            <p class="text-xs text-slate-600 mt-0.5">${v.explanation||''}</p>
+            <p class="text-[11px] text-slate-400 italic mt-0.5">"${v.evidence||''}"</p>
+        </div>`).join('')}
+    </div>`;
+    if (data.transcript) {
+        const roleByLabel = {};
+        (data.speakers||[]).forEach(s => { roleByLabel[s.speaker_label] = s.role; });
+        const speakerLabelHtml = (label) => {
+            const role = roleByLabel[label];
+            if (role === 'employee') {
+                const name = (c && c.erp_employee_name) || (e && e.employee_name);
+                return { text: name ? `พนักงาน (${name})` : 'พนักงาน', color: 'text-sky-600' };
+            }
+            if (role === 'customer') {
+                const name = (c && c.erp_customer_name) || (e && e.customer_name);
+                return { text: name ? `ลูกค้า (${name})` : 'ลูกค้า', color: 'text-orange-600' };
+            }
+            return { text: label, color: 'text-slate-500' };
+        };
+        html += `<div>
+            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">บทสนทนา</h4>
+            <div class="bg-slate-50 rounded-lg p-3 max-h-64 overflow-y-auto space-y-1.5">
+                ${(data.segments||[]).map(seg => { const sp = speakerLabelHtml(seg.speaker_label); return `<p class="text-xs"><span class="font-semibold ${sp.color}">${sp.text}:</span> ${seg.text}</p>`; }).join('')}
+            </div>
+        </div>`;
+    }
+    document.getElementById('aiModalBody').innerHTML = html || '<div class="text-center py-12 text-slate-400">ไม่มีข้อมูล</div>';
+}
+
+function hideAiModal() { document.getElementById('aiModal').classList.add('hidden'); }
 
 // ===== Audio =====
 function playAudio(record) {
@@ -1038,6 +1433,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saved) {
         try {
             loggedInUser = JSON.parse(saved);
+            aiToken = loggedInUser.api_token || null;
             showDashboard();
         } catch(e) { sessionStorage.removeItem('voicecall_user'); }
     }

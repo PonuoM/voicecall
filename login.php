@@ -89,6 +89,47 @@ if ($user['status'] !== 'active') {
     exit;
 }
 
+// Mint a bearer token for the AI pipeline API (api/index.php) in the local voicecall_ai DB.
+// Additive only — never blocks login if it fails, since the existing dashboard doesn't need it.
+$apiToken = null;
+try {
+    require_once __DIR__ . '/api/core/env.php';
+    load_env(__DIR__ . '/.env');
+    $aiConn = new mysqli(
+        getenv('DB_HOST') ?: 'localhost',
+        getenv('DB_USER') ?: 'root',
+        getenv('DB_PASS') ?: '12345678',
+        getenv('DB_NAME') ?: 'voicecall_ai'
+    );
+    $aiConn->set_charset('utf8mb4');
+    $apiToken = bin2hex(random_bytes(32));
+    $expiresAt = date('Y-m-d H:i:s', strtotime('+7 days'));
+    $uid = (int)$user['id'];
+    $cid = (int)$user['company_id'];
+    $rid = (int)$user['role_id'];
+    $isSuperAdmin = in_array($rid, [1, 10, 14]) ? 1 : 0;
+    $fullName = trim($user['first_name'] . ' ' . $user['last_name']);
+    $tokenStmt = $aiConn->prepare('
+        INSERT INTO api_tokens (erp_user_id, erp_company_id, erp_role_id, erp_is_super_admin, erp_username, erp_full_name, token, expires_at)
+        VALUES (?,?,?,?,?,?,?,?)
+    ');
+    $tokenStmt->bind_param(
+        'iiiissss',
+        $uid,
+        $cid,
+        $rid,
+        $isSuperAdmin,
+        $user['username'],
+        $fullName,
+        $apiToken,
+        $expiresAt
+    );
+    $tokenStmt->execute();
+    $aiConn->close();
+} catch (Throwable $e) {
+    $apiToken = null; // AI API simply won't be usable this session; dashboard login still succeeds
+}
+
 // Success — return user info
 echo json_encode([
     'success' => true,
@@ -100,7 +141,8 @@ echo json_encode([
         'company_name' => $user['company_name'] ?? 'ไม่ระบุ',
         'role_id' => (int)$user['role_id'],
         'role_name' => $user['role_name'] ?? 'ไม่ระบุ',
-        'is_super_admin' => in_array((int)$user['role_id'], [1, 10, 14]) // Super Admin, Admin System, CEO
+        'is_super_admin' => in_array((int)$user['role_id'], [1, 10, 14]), // Super Admin, Admin System, CEO
+        'api_token' => $apiToken // bearer token for api/* (AI pipeline) endpoints; null if minting failed
     ]
 ]);
 

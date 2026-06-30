@@ -1,5 +1,10 @@
 # Sensitive — real DB credentials (use config.example.php as template)
 config.php
+.env
+
+# AI pipeline runtime cache
+api/storage/audio_cache/
+api/logs/
 
 # Recordings / large data
 20260120-20260131/
@@ -12,3 +17,4 @@ config.php
 .DS_Store
 Thumbs.db
 .claude/
+.playwright-mcp/

@@ -283,3 +283,73 @@ WHERE ch.duration >= 40
 - ใช้ `utf8mb4` charset สำหรับข้อมูลภาษาไทย
 - Row counts เป็นค่าประมาณจาก `information_schema` (ณ มี.ค. 2026)
 - การ query ควรใช้ `LIMIT` เพื่อป้องกัน timeout กับตารางใหญ่
+
+---
+
+# 📊 AI Voice Intelligence Platform (primacom_voicelog)
+
+ฐานข้อมูล output ของ 6-agent AI pipeline (transcribe → summarize → extract → compliance →
+index → assistant) ของโปรเจกต์ `voicecall` — **แยกจาก `primacom_mini_erp` คนละฐานข้อมูล**
+แต่อยู่บนโฮสต์เดียวกัน
+
+## 🔌 การเชื่อมต่อ Database
+
+| รายการ | ค่า |
+|--------|-----|
+| **Host** | `202.183.192.218` |
+| **Database** | `primacom_voicelog` |
+| **Username** | `primacom_bloguser` (เดียวกับ mini_erp) |
+| **Password** | `pJnL53Wkhju2LaGPytw8` (เดียวกับ mini_erp) |
+| **Port** | `3306` (default) |
+
+> ⚠️ **เคยเข้าใจผิดว่าฐานนี้ต่อได้แค่จาก production server เอง (localhost-only)** เพราะตอน
+> deploy ครั้งแรกต่อ external ไม่ติด เลยใช้วิธีอัปโหลดสคริปต์ผ่าน FTP แล้วยิง trigger ผ่าน
+> HTTPS แทน — **ที่จริงเชื่อมต่อตรงจากเครื่อง dev ได้เลย เหมือน mini_erp ทุกอย่าง** (ทดสอบแล้ว
+> 2026-06-28) ใช้ host/user/password บรรทัดบนนี้ต่อตรงได้ทันที ไม่ต้องผ่าน bootstrap script
+> อีกต่อไป (ยกเว้นกรณีต้องรันโค้ด PHP จริงๆบน production เช่นทดสอบ `config.php`/relative path)
+
+### วิธีเชื่อมต่อ (เหมือน mini_erp)
+
+```bash
+mysql -h 202.183.192.218 -u primacom_bloguser -p primacom_voicelog
+```
+
+```php
+<?php
+$conn = new mysqli('202.183.192.218', 'primacom_bloguser', 'pJnL53Wkhju2LaGPytw8', 'primacom_voicelog');
+$conn->set_charset("utf8mb4");
+```
+
+## 📋 โครงสร้างฐานข้อมูล (ณ 2026-06-28)
+
+| Table | Rows | คำอธิบาย |
+|-------|-----:|----------|
+| `conversations` | 7 | สายที่ลงทะเบียนแล้ว (audio_ref, caller/receiver, สถานะ, จับคู่ ERP) |
+| `transcripts` | 7 | ข้อความถอดเสียงเต็ม (1 ต่อ 1 conversation) |
+| `transcript_segments` | 101 | บทพูดแยกตาม speaker_1/speaker_2 + role (employee/customer) |
+| `speakers` | 12 | role ของแต่ละ speaker_label ต่อสาย |
+| `summaries` | 7 | สรุปบทสนทนา, sentiment, keywords |
+| `keywords` | 37 | คำสำคัญที่แยกออกมา |
+| `extracted_entities` | 7 | ลูกค้า/พนักงาน/สินค้า/ราคาที่แกะได้ + จับคู่กับ ERP catalog/order |
+| `action_items` | 12 | สิ่งที่ต้องทำต่อจากการคุย |
+| `conversation_tags` | 16 | แท็กของแต่ละสาย |
+| `compliance_rules` | 3 | กฎ compliance ที่ตั้งไว้ |
+| `compliance_reports` | 7 | ผลตรวจ compliance ต่อสาย |
+| `violations` | 5 | รายการที่ผิดกฎ |
+| `knowledge_chunks` | 10 | chunk สำหรับ RAG assistant |
+| `assistant_queries` | 0 | ประวัติคำถามที่ถาม AI assistant |
+| `gdrive_file_index` | 133,508 | index ไฟล์เสียงจาก Google Drive (ใช้แทนการ scan สดทุกครั้ง) |
+| `gdrive_sync_runs` | 2 | ประวัติการ sync index |
+| `api_tokens` | 29 | token สำหรับ auth เข้า API ของ voicecall |
+| `audit_log` | 8 | log การกระทำสำคัญ (register, process, ฯลฯ) |
+
+## 🔑 ข้อควรรู้
+
+- `conversations.status`: `pending` → `transcribing` → ... → `completed`/`failed`
+- เบอร์โทรใน `conversations` เก็บแบบ E.164 (`+66...`) ส่วน `primacom_mini_erp.customers.phone`
+  เก็บแบบ local (`0...`) และ `primacom_mini_erp.users.phone` **เก็บผสมทั้ง 2 แบบ** — ดู
+  `ErpLookupService::candidateFormats()` ในโค้ดถ้าต้อง join ข้ามฐานด้วยเบอร์โทร
+- ไม่มี FK ข้ามฐานข้อมูล (mini_erp อยู่คนละ schema) — `erp_customer_id`/`erp_employee_id` เป็น
+  plain int อ้างอิงไว้เฉยๆ ต้อง join ที่ application layer
+- การประมวลผล AI จริง (transcribe/summarize/ฯลฯ) มีต้นทุนจริงต่อสาย (OpenRouter) — อย่ารัน
+  `process` ซ้ำโดยไม่ตั้งใจ ดู `conversations.status` ก่อนว่า `completed` แล้วหรือยัง
