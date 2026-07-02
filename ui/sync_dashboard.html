@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OneCall to Google Drive Sync Dashboard</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .stats { display: flex; gap: 20px; margin-top: 20px; }
+        .stat-card { background: white; padding: 20px; border-radius: 8px; flex: 1; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
+        .stat-card h3 { margin: 0; color: #666; font-size: 14px; text-transform: uppercase; }
+        .stat-card p { margin: 10px 0 0; font-size: 32px; font-weight: bold; color: #333; }
+        .btn-sync { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-sync:hover { background-color: #0056b3; }
+        table { width: 100%; background: white; margin-top: 20px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-collapse: collapse; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #fafafa; font-weight: 600; color: #555; }
+        .status-synced { color: #28a745; font-weight: bold; }
+        .status-failed { color: #dc3545; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Audio Sync Dashboard</h2>
+            <button class="btn-sync" onclick="startSync()">▶ Run Sync Now</button>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Total Synced (Today)</h3>
+                <p>1,204</p>
+            </div>
+            <div class="stat-card">
+                <h3>Failed Syncs</h3>
+                <p style="color: #dc3545;">2</p>
+            </div>
+            <div class="stat-card">
+                <h3>Last Sync Time</h3>
+                <p style="font-size: 20px; margin-top: 18px;">10 mins ago</p>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Call ID / Recording ID</th>
+                    <th>Google Drive ID</th>
+                    <th>Status</th>
+                    <th>Timestamp</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>20260524144933</td>
+                    <td>17GwY7yxD11qqeTcR5QsTUpT6rdFkjVVg</td>
+                    <td class="status-synced">Synced</td>
+                    <td>2026-05-24 14:50:11</td>
+                </tr>
+                <tr>
+                    <td>20260524151200</td>
+                    <td>-</td>
+                    <td class="status-failed">Failed (Network Error)</td>
+                    <td>2026-05-24 15:13:02</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <script>
+        function startSync() {
+            alert('This would trigger the backend API to run the sync script asynchronously.');
+        }
+    </script>
+</body>
+</html>
