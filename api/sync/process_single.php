@@ -5,16 +5,31 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../Services/OneCallClient.php';
 require_once __DIR__ . '/../Services/GoogleDriveUploader.php';
 
-$configPath = __DIR__ . '/../../config.php';
-if (!file_exists($configPath)) {
-    echo json_encode(['success' => false, 'message' => 'Config file not found.']);
+$envPath = __DIR__ . '/../../.env';
+if (!file_exists($envPath)) {
+    echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
+$env = parse_ini_file($envPath);
 
-$config = require $configPath;
-$dbConfig = $config['db'] ?? [];
-$driveConfig = $config['google_drive'] ?? [];
-$onecallConfig = $config['onecall'] ?? [];
+$localDb = [
+    'host'     => $env['DB_HOST'] ?? 'localhost',
+    'database' => $env['DB_NAME'] ?? 'voicecall_ai',
+    'username' => $env['DB_USER'] ?? 'root',
+    'password' => $env['DB_PASS'] ?? ''
+];
+
+$erpDb = [
+    'host'     => $env['ERP_DB_HOST'] ?? 'localhost',
+    'database' => $env['ERP_DB_NAME'] ?? 'primacom_mini_erp',
+    'username' => $env['ERP_DB_USER'] ?? 'root',
+    'password' => $env['ERP_DB_PASS'] ?? ''
+];
+
+$driveConfig = [
+    'service_account_json' => __DIR__ . '/../../service-account.json', // Adjust path based on actual location
+    'folder_id' => '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet', // Default, should ideally come from company settings
+];
 
 $callId = $_POST['id'] ?? '';
 if (!$callId) {
@@ -26,57 +41,91 @@ $startTime = $_POST['start'] ?? date('Y-m-d H:i:s');
 $caller = $_POST['caller'] ?? '000000000';
 $receiver = $_POST['receiver'] ?? '000000000';
 $direction = $_POST['direction'] ?? 'OUT';
+$companyId = 1; 
 
 try {
-    $pdo = new PDO(
-        "mysql:host={$dbConfig['host']};dbname={$dbConfig['database']};charset={$dbConfig['charset']}",
-        $dbConfig['username'],
-        $dbConfig['password'],
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-    );
+    // 1. DB connections
+    $pdoLocal = new PDO("mysql:host={$localDb['host']};dbname={$localDb['database']};charset=utf8mb4", $localDb['username'], $localDb['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdoErp = new PDO("mysql:host={$erpDb['host']};dbname={$erpDb['database']};charset=utf8mb4", $erpDb['username'], $erpDb['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 
-    // Double check if already synced to avoid race conditions
-    $stmt = $pdo->prepare("SELECT status FROM sync_logs WHERE call_id = ?");
-    $stmt->execute([$callId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($row && $row['status'] === 'synced') {
+    // Check if already indexed
+    $stmt = $pdoLocal->prepare("SELECT id FROM gdrive_file_index WHERE company_id = ? AND call_code = ?");
+    $stmt->execute([$companyId, $callId]);
+    if ($stmt->fetch()) {
         echo json_encode(['success' => true, 'message' => 'Already synced', 'skipped' => true]);
         exit;
     }
 
+    // 2. ERP OneCall Credentials
+    $stmt = $pdoErp->prepare("SELECT `key`, `value` FROM env WHERE `key` IN (?, ?)");
+    $stmt->execute(["ONECALL_USERNAME_{$companyId}", "ONECALL_PASSWORD_{$companyId}"]);
+    $erpEnv = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    
+    $oneCallUser = $erpEnv["ONECALL_USERNAME_{$companyId}"] ?? '';
+    $oneCallPass = $erpEnv["ONECALL_PASSWORD_{$companyId}"] ?? '';
+    if (!$oneCallUser || !$oneCallPass) {
+        throw new Exception("OneCall credentials not found in ERP DB for company $companyId");
+    }
+
+    $onecallConfig = [
+        'base_url' => 'https://onecallvoicerecord.dtac.co.th/',
+        'username' => $oneCallUser,
+        'password' => $oneCallPass
+    ];
+
     $oneCall = new OneCallClient($onecallConfig['base_url'], $onecallConfig['username'], $onecallConfig['password']);
     $uploader = new GoogleDriveUploader($driveConfig['service_account_json'], $driveConfig['folder_id']);
 
-    // Build the filename using the PBX standard rules
+    // 3. Prepare metadata
     $dateObj = new DateTime($startTime);
     $dateStr = $dateObj->format('Ymd_His');
+    $callDate = $dateObj->format('Y-m-d');
+    $callTime = $dateObj->format('H:i:s');
     
-    $encodedCaller = '%2B' . preg_replace('/[^0-9]/', '', $caller);
-    $encodedReceiver = '%2B' . preg_replace('/[^0-9]/', '', $receiver);
+    $cleanCaller = preg_replace('/[^0-9]/', '', $caller);
+    $cleanReceiver = preg_replace('/[^0-9]/', '', $receiver);
     
     // Thailand prefix enforcement
-    if (strpos($encodedCaller, '%2B0') === 0) $encodedCaller = str_replace('%2B0', '%2B66', $encodedCaller);
-    if (strpos($encodedReceiver, '%2B0') === 0) $encodedReceiver = str_replace('%2B0', '%2B66', $encodedReceiver);
+    if (strpos($cleanCaller, '0') === 0) $cleanCaller = '66' . substr($cleanCaller, 1);
+    if (strpos($cleanReceiver, '0') === 0) $cleanReceiver = '66' . substr($cleanReceiver, 1);
     
-    $fileName = "{$dateStr}_{$callId}-{$encodedCaller}-{$encodedReceiver}-" . strtoupper($direction) . ".wav";
+    $encodedCaller = '%2B' . $cleanCaller;
+    $encodedReceiver = '%2B' . $cleanReceiver;
     
+    $directionUpper = strtoupper($direction);
+    $fileName = "{$dateStr}_{$callId}-{$encodedCaller}-{$encodedReceiver}-{$directionUpper}.wav";
     $tempFile = sys_get_temp_dir() . '/' . $fileName;
     
-    // Direct audio rest endpoint
     $audioUrl = rtrim($onecallConfig['base_url'], '/') . "/onecall/orktrack/rest/recordings/{$callId}/audio";
     
-    // 1. Download
+    // 4. Download and Upload
     $oneCall->downloadAudio($audioUrl, $tempFile);
+    $sizeBytes = filesize($tempFile);
     
-    // 2. Upload
     $driveFileId = $uploader->uploadFile($tempFile, $fileName);
-    
-    // 3. Cleanup temp file
     unlink($tempFile);
     
-    // 4. Update Database
-    $stmt = $pdo->prepare("INSERT INTO sync_logs (call_id, drive_file_id, status) VALUES (?, ?, 'synced') ON DUPLICATE KEY UPDATE drive_file_id=?, status='synced', error_message=NULL");
-    $stmt->execute([$callId, $driveFileId, $driveFileId]);
+    // 5. Update Local DB (voicecall_ai.gdrive_file_index)
+    $insertStmt = $pdoLocal->prepare("
+        INSERT INTO gdrive_file_index 
+        (company_folder_id, company_id, gdrive_file_id, filename, call_code, call_date, call_time, caller_phone, receiver_phone, direction, size_bytes) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+        filename=VALUES(filename), call_code=VALUES(call_code), size_bytes=VALUES(size_bytes), last_seen_at=CURRENT_TIMESTAMP
+    ");
+    $insertStmt->execute([
+        $driveConfig['folder_id'],
+        $companyId,
+        $driveFileId,
+        $fileName,
+        $callId,
+        $callDate,
+        $callTime,
+        '+' . $cleanCaller,
+        '+' . $cleanReceiver,
+        $directionUpper,
+        $sizeBytes
+    ]);
     
     echo json_encode(['success' => true, 'driveFileId' => $driveFileId]);
 
@@ -84,11 +133,9 @@ try {
     if (isset($tempFile) && file_exists($tempFile)) {
         unlink($tempFile);
     }
-
-    if (isset($pdo) && $callId) {
-        $stmt = $pdo->prepare("INSERT INTO sync_logs (call_id, status, error_message) VALUES (?, 'failed', ?) ON DUPLICATE KEY UPDATE status='failed', error_message=?");
-        $stmt->execute([$callId, $e->getMessage(), $e->getMessage()]);
-    }
+    
+    // Optionally log errors in a gdrive_sync_runs or a separate table if needed
+    // For now, returning the error to the UI is sufficient for the dashboard tracking
     
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
