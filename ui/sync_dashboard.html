@@ -13,7 +13,8 @@
         .stats { display: flex; gap: 20px; margin-top: 20px; }
         .stat-card { background: white; padding: 20px; border-radius: 8px; flex: 1; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
         .stat-card h3 { margin: 0; color: #666; font-size: 14px; text-transform: uppercase; }
-        .stat-card p { margin: 10px 0 0; font-size: 32px; font-weight: bold; color: #333; }
+        .btn-shortcut { background-color: #6c757d; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-shortcut:hover { background-color: #5a6268; }
         .btn-sync { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .btn-sync:hover { background-color: #0056b3; }
         .btn-sync:disabled { background-color: #ccc; cursor: not-allowed; }
@@ -31,7 +32,14 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>Audio Sync Dashboard</h2>
+            <div>
+                <h2>Audio Sync Dashboard</h2>
+                <div style="margin-top: 10px; display: flex; gap: 10px;">
+                    <button class="btn-shortcut" onclick="setDateShortcut('today')">Today</button>
+                    <button class="btn-shortcut" onclick="setDateShortcut('yesterday')">Yesterday</button>
+                    <button class="btn-shortcut" onclick="setDateShortcut('last7days')">Last 7 Days</button>
+                </div>
+            </div>
             <div class="controls">
                 <label>Start:</label>
                 <input type="datetime-local" id="startDate" value="2026-06-30T00:00">
@@ -84,6 +92,35 @@
 
         function formatDateTimeForAPI(datetimeLocal) {
             return datetimeLocal.replace('T', '_').replace(/[:-]/g, '') + '00';
+        }
+
+        function setDateShortcut(range) {
+            const now = new Date();
+            let start = new Date();
+            let end = new Date();
+
+            if (range === 'today') {
+                start.setHours(0, 0, 0, 0);
+                end.setHours(23, 59, 59, 999);
+            } else if (range === 'yesterday') {
+                start.setDate(start.getDate() - 1);
+                start.setHours(0, 0, 0, 0);
+                end.setDate(end.getDate() - 1);
+                end.setHours(23, 59, 59, 999);
+            } else if (range === 'last7days') {
+                start.setDate(start.getDate() - 7);
+                start.setHours(0, 0, 0, 0);
+                end.setHours(23, 59, 59, 999);
+            }
+            
+            // Format for datetime-local input: YYYY-MM-DDThh:mm
+            const formatInput = (date) => {
+                const tzOffset = (date.getTimezoneOffset() * 60000);
+                return (new Date(date - tzOffset)).toISOString().slice(0, 16);
+            };
+
+            document.getElementById('startDate').value = formatInput(start);
+            document.getElementById('endDate').value = formatInput(end);
         }
 
         async function startSync() {
