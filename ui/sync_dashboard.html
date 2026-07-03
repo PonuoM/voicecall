@@ -6,13 +6,32 @@
     <title>OneCall to Google Drive Sync Dashboard</title>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 15px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap; }
+        
+        /* Calendar Panel */
+        .calendar-panel { flex: 1; min-width: 300px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-weight: bold; }
+        .calendar-header button { background: none; border: none; font-size: 16px; cursor: pointer; color: #007bff; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
+        .calendar-day-header { font-size: 12px; font-weight: bold; color: #666; margin-bottom: 5px; }
+        .calendar-day { padding: 10px 5px; border-radius: 4px; border: 1px solid #eee; font-size: 12px; cursor: pointer; transition: 0.2s; min-height: 50px; display: flex; flex-direction: column; justify-content: center; }
+        .calendar-day:hover { border-color: #007bff; }
+        .calendar-day.empty { background-color: #f8f9fa; color: #ccc; cursor: default; }
+        .calendar-day.empty:hover { border-color: #eee; }
+        .calendar-day.has-data { background-color: #e6f4ea; border-color: #cce8d6; color: #137333; }
+        .calendar-day.no-data { background-color: #fff; color: #666; }
+        .file-count-badge { font-size: 10px; font-weight: bold; margin-top: 4px; background: rgba(0,0,0,0.05); border-radius: 10px; padding: 2px 5px; display: inline-block; }
+        
+        /* Main Panel */
+        .main-panel { flex: 2; min-width: 500px; }
+        .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
         .controls { display: flex; gap: 10px; align-items: center; }
         .controls input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
         .stats { display: flex; gap: 20px; margin-top: 20px; }
         .stat-card { background: white; padding: 20px; border-radius: 8px; flex: 1; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
         .stat-card h3 { margin: 0; color: #666; font-size: 14px; text-transform: uppercase; }
+        .stat-card p { margin: 10px 0 0; font-size: 32px; font-weight: bold; color: #333; }
+        
         .btn-shortcut { background-color: #6c757d; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .btn-shortcut:hover { background-color: #5a6268; }
         .btn-sync { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
@@ -31,58 +50,158 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <div>
-                <h2>Audio Sync Dashboard</h2>
-                <div style="margin-top: 10px; display: flex; gap: 10px;">
-                    <button class="btn-shortcut" onclick="setDateShortcut('today')">Today</button>
-                    <button class="btn-shortcut" onclick="setDateShortcut('yesterday')">Yesterday</button>
-                    <button class="btn-shortcut" onclick="setDateShortcut('last7days')">Last 7 Days</button>
+        <!-- Calendar Heatmap Panel -->
+        <div class="calendar-panel">
+            <h2 style="margin-top:0; font-size:18px;">Calendar Heatmap</h2>
+            <p style="font-size:12px; color:#666; margin-bottom: 20px;">คลิกวันที่เพื่อเลือกดึงข้อมูล</p>
+            
+            <div class="calendar-header">
+                <button onclick="changeMonth(-1)">◀ Prev</button>
+                <span id="calendarMonthLabel">July 2026</span>
+                <button onclick="changeMonth(1)">Next ▶</button>
+            </div>
+            
+            <div class="calendar-grid">
+                <div class="calendar-day-header">Sun</div>
+                <div class="calendar-day-header">Mon</div>
+                <div class="calendar-day-header">Tue</div>
+                <div class="calendar-day-header">Wed</div>
+                <div class="calendar-day-header">Thu</div>
+                <div class="calendar-day-header">Fri</div>
+                <div class="calendar-day-header">Sat</div>
+            </div>
+            <div class="calendar-grid" id="calendarGrid">
+                <!-- Days will be generated here by JS -->
+            </div>
+        </div>
+
+        <!-- Main Sync Panel -->
+        <div class="main-panel">
+            <div class="header">
+                <div>
+                    <h2 style="margin-top:0;">Audio Sync Dashboard</h2>
+                    <div style="margin-top: 10px; display: flex; gap: 10px;">
+                        <button class="btn-shortcut" onclick="setDateShortcut('today')">Today</button>
+                        <button class="btn-shortcut" onclick="setDateShortcut('yesterday')">Yesterday</button>
+                        <button class="btn-shortcut" onclick="setDateShortcut('last7days')">Last 7 Days</button>
+                    </div>
+                </div>
+                <div class="controls">
+                    <label>Start:</label>
+                    <input type="datetime-local" id="startDate" value="2026-06-30T00:00">
+                    <label>End:</label>
+                    <input type="datetime-local" id="endDate" value="2026-06-30T23:59">
+                    <button class="btn-sync" id="btnSync" onclick="startSync()">▶ Start Sync</button>
                 </div>
             </div>
-            <div class="controls">
-                <label>Start:</label>
-                <input type="datetime-local" id="startDate" value="2026-06-30T00:00">
-                <label>End:</label>
-                <input type="datetime-local" id="endDate" value="2026-06-30T23:59">
-                <button class="btn-sync" id="btnSync" onclick="startSync()">▶ Start Sync</button>
-            </div>
-        </div>
 
-        <div class="progress-container" id="progressContainer">
-            <div class="progress-bar" id="progressBar">0%</div>
-        </div>
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar">0%</div>
+            </div>
 
-        <div class="stats">
-            <div class="stat-card">
-                <h3>Total Found</h3>
-                <p id="statTotal">0</p>
+            <div class="stats">
+                <div class="stat-card">
+                    <h3>Total Found</h3>
+                    <p id="statTotal">0</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Successfully Synced</h3>
+                    <p id="statSuccess" style="color: #28a745;">0</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Failed</h3>
+                    <p id="statFailed" style="color: #dc3545;">0</p>
+                </div>
             </div>
-            <div class="stat-card">
-                <h3>Successfully Synced</h3>
-                <p id="statSuccess" style="color: #28a745;">0</p>
-            </div>
-            <div class="stat-card">
-                <h3>Failed</h3>
-                <p id="statFailed" style="color: #dc3545;">0</p>
-            </div>
-        </div>
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Call ID</th>
-                    <th>Google Drive ID</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody id="logTableBody">
-                <!-- Logs will appear here -->
-            </tbody>
-        </table>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Call ID</th>
+                        <th>Google Drive ID</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="logTableBody">
+                    <!-- Logs will appear here -->
+                </tbody>
+            </table>
+        </div>
     </div>
     
     <script>
+        // === Calendar Logic ===
+        let currentCalDate = new Date(); // Start with current month
+        let calendarStats = {};
+
+        async function fetchCalendarStats() {
+            try {
+                const res = await fetch('../api/sync/get_calendar_stats.php');
+                const data = await res.json();
+                if (data.success) {
+                    calendarStats = data.data;
+                    renderCalendar();
+                }
+            } catch (err) {
+                console.error("Failed to load calendar stats", err);
+            }
+        }
+
+        function changeMonth(offset) {
+            currentCalDate.setMonth(currentCalDate.getMonth() + offset);
+            renderCalendar();
+        }
+
+        function selectCalendarDate(dateStr) {
+            // dateStr format: YYYY-MM-DD
+            document.getElementById('startDate').value = `${dateStr}T00:00`;
+            document.getElementById('endDate').value = `${dateStr}T23:59`;
+        }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            grid.innerHTML = '';
+            
+            const year = currentCalDate.getFullYear();
+            const month = currentCalDate.getMonth();
+            
+            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            document.getElementById('calendarMonthLabel').innerText = `${monthNames[month]} ${year}`;
+            
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            
+            // Empty slots before 1st day
+            for (let i = 0; i < firstDay; i++) {
+                const div = document.createElement('div');
+                div.className = 'calendar-day empty';
+                grid.appendChild(div);
+            }
+            
+            // Days
+            for (let i = 1; i <= daysInMonth; i++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                const count = calendarStats[dateStr] || 0;
+                
+                const div = document.createElement('div');
+                div.className = `calendar-day ${count > 0 ? 'has-data' : 'no-data'}`;
+                div.onclick = () => selectCalendarDate(dateStr);
+                
+                let content = `<span>${i}</span>`;
+                if (count > 0) {
+                    content += `<span class="file-count-badge">${count} files</span>`;
+                }
+                
+                div.innerHTML = content;
+                grid.appendChild(div);
+            }
+        }
+
+        // Initialize Calendar
+        fetchCalendarStats();
+
+
+        // === Sync Logic ===
         let pendingFiles = [];
         let totalFiles = 0;
         let successCount = 0;
@@ -113,7 +232,6 @@
                 end.setHours(23, 59, 59, 999);
             }
             
-            // Format for datetime-local input: YYYY-MM-DDThh:mm
             const formatInput = (date) => {
                 const tzOffset = (date.getTimezoneOffset() * 60000);
                 return (new Date(date - tzOffset)).toISOString().slice(0, 16);
@@ -179,6 +297,7 @@
         async function processNextFile() {
             if (currentIndex >= totalFiles) {
                 alert("Sync Complete!");
+                fetchCalendarStats(); // Refresh calendar counts!
                 resetUI();
                 return;
             }
@@ -203,7 +322,7 @@
                 if (data.success) {
                     successCount++;
                     const statusClass = data.skipped ? 'status-skipped' : 'status-synced';
-                    const statusText = data.skipped ? 'Skipped (Already Synced)' : 'Synced';
+                    const statusText = data.skipped ? 'Skipped' : 'Synced';
                     appendLog(file.id, data.driveFileId || '-', statusText, statusClass);
                 } else {
                     failCount++;
@@ -217,8 +336,7 @@
             currentIndex++;
             updateStats();
             
-            // recursive call for next file
-            setTimeout(processNextFile, 100); // 100ms delay to let browser breathe
+            setTimeout(processNextFile, 100); 
         }
 
         function updateProgressBar() {
@@ -241,7 +359,6 @@
                 <td>${driveId}</td>
                 <td class="${statusClass}">${statusText}</td>
             `;
-            // Insert at the top
             tbody.insertBefore(tr, tbody.firstChild);
         }
 
