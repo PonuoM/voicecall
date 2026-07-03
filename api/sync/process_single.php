@@ -26,10 +26,7 @@ $erpDb = [
     'password' => $env['ERP_DB_PASS'] ?? ''
 ];
 
-$driveConfig = [
-    'service_account_json' => __DIR__ . '/../../service-account.json', // Adjust path based on actual location
-    'folder_id' => '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet', // Default, should ideally come from company settings
-];
+    // $driveConfig removed, moved lower
 
 $callId = $_POST['id'] ?? '';
 if (!$callId) {
@@ -37,11 +34,12 @@ if (!$callId) {
     exit;
 }
 
-$startTime = $_POST['start'] ?? date('Y-m-d H:i:s');
-$caller = $_POST['caller'] ?? '000000000';
-$receiver = $_POST['receiver'] ?? '000000000';
-$direction = $_POST['direction'] ?? 'OUT';
-$companyId = 1; 
+$startTime = !empty($_POST['start']) ? $_POST['start'] : date('Y-m-d H:i:s');
+$caller = !empty($_POST['caller']) ? $_POST['caller'] : '000000000';
+$receiver = !empty($_POST['receiver']) ? $_POST['receiver'] : '000000000';
+$direction = !empty($_POST['direction']) ? $_POST['direction'] : 'OUT';
+$companyId = $_POST['company_id'] ?? 1; 
+$folderId = $_POST['folder_id'] ?? '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet';
 
 try {
     // 1. DB connections
@@ -67,6 +65,13 @@ try {
         throw new Exception("OneCall credentials not found in ERP DB for company $companyId");
     }
 
+    $driveConfig = [
+        'client_id' => $env['DRIVE_CLIENT_ID'] ?? '',
+        'client_secret' => $env['DRIVE_CLIENT_SECRET'] ?? '',
+        'refresh_token' => $env['DRIVE_REFRESH_TOKEN'] ?? '',
+        'folder_id' => $folderId,
+    ];
+
     $onecallConfig = [
         'base_url' => 'https://onecallvoicerecord.dtac.co.th/',
         'username' => $oneCallUser,
@@ -74,7 +79,7 @@ try {
     ];
 
     $oneCall = new OneCallClient($onecallConfig['base_url'], $onecallConfig['username'], $onecallConfig['password']);
-    $uploader = new GoogleDriveUploader($driveConfig['service_account_json'], $driveConfig['folder_id']);
+    $uploader = new GoogleDriveUploader($driveConfig['client_id'], $driveConfig['client_secret'], $driveConfig['refresh_token'], $driveConfig['folder_id']);
 
     // 3. Prepare metadata
     $dateObj = new DateTime($startTime);
@@ -95,10 +100,8 @@ try {
     $directionUpper = strtoupper($direction);
     $fileName = "{$dateStr}_{$callId}-{$encodedCaller}-{$encodedReceiver}-{$directionUpper}.wav";
     $tempFile = sys_get_temp_dir() . '/' . $fileName;
-    
-    $audioUrl = rtrim($onecallConfig['base_url'], '/') . "/onecall/orktrack/rest/recordings/{$callId}/audio";
-    
     // 4. Download and Upload
+    $audioUrl = rtrim($onecallConfig['base_url'], '/') . "/orktrack/rest/mediastream/{$callId}";
     $oneCall->downloadAudio($audioUrl, $tempFile);
     $sizeBytes = filesize($tempFile);
     

@@ -7,23 +7,37 @@ class OneCallClient {
 
     public function __construct($baseUrl, $username, $password) {
         $this->baseUrl = rtrim($baseUrl, '/');
-        $this->username = $username;
-        $this->password = $password;
+        $this->username = trim($username, '"\'');
+        $this->password = trim($password, '"\'');
     }
 
     public function login() {
-        $url = $this->baseUrl . '/onecall/orktrack/rest/user/login?version=orktrack&accesspolicy=all&licenseinfo=true';
+        $url = $this->baseUrl . '/orktrack/rest/user/login?version=orktrack&accesspolicy=all&licenseinfo=true';
         $auth = base64_encode($this->username . ':' . $this->password);
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, ''); 
+        
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Accept: application/json',
-            'Authorization: Basic ' . $auth
+            'Authorization: Basic ' . $auth,
+            'Content-Type:', 
+            'Content-Length: 0'
         ]);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10); // Best Practice: Connection Timeout
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30); // Best Practice: Execution Timeout
 
         $response = curl_exec($ch);
+        
+        if ($response === false) {
+            $errorMsg = curl_error($ch);
+            curl_close($ch);
+            throw new Exception("cURL Error during login: $errorMsg");
+        }
+
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
@@ -32,6 +46,7 @@ class OneCallClient {
             $this->accessToken = $data['accesstoken'] ?? '';
             return true;
         }
+        
         throw new Exception("Failed to login to OneCall: HTTP $httpCode - $response");
     }
 
@@ -40,8 +55,7 @@ class OneCallClient {
             $this->login();
         }
 
-        // dateStart/dateEnd should be YYYYMMDD_HHMMSS format based on the guide
-        $url = $this->baseUrl . '/onecall/orktrack/rest/recordings?range=custom&startdate=' . $dateStart . '&enddate=' . $dateEnd . '&page=1&maxresults=-1&includetags=true&includemetadata=true&includeprograms=true';
+        $url = $this->baseUrl . '/orktrack/rest/recordings?range=custom&startdate=' . $dateStart . '&enddate=' . $dateEnd . '&page=1&pagesize=5000&maxresults=-1&includetags=true&includemetadata=true&includeprograms=true';
         
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -50,15 +64,24 @@ class OneCallClient {
             'Authorization: ' . $this->accessToken
         ]);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60); // 1 minute max for getting the list
 
         $response = curl_exec($ch);
+        
+        if ($response === false) {
+            $errorMsg = curl_error($ch);
+            curl_close($ch);
+            throw new Exception("cURL Error during getRecordings: $errorMsg");
+        }
+
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
         if ($httpCode === 200) {
             return json_decode($response, true);
         }
-        throw new Exception("Failed to get recordings: HTTP $httpCode");
+        throw new Exception("Failed to get recordings: HTTP $httpCode - $response");
     }
 
     public function downloadAudio($recordingUrl, $savePath) {
@@ -68,14 +91,31 @@ class OneCallClient {
 
         $ch = curl_init($recordingUrl);
         $fp = fopen($savePath, 'wb');
+        if (!$fp) {
+            throw new Exception("Failed to open file for writing: $savePath");
+        }
+
         curl_setopt($ch, CURLOPT_FILE, $fp);
         curl_setopt($ch, CURLOPT_HEADER, 0);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Authorization: ' . $this->accessToken
         ]);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 300); // 5 minutes max for downloading large audio file
 
-        curl_exec($ch);
+        $success = curl_exec($ch);
+        
+        if ($success === false) {
+            $errorMsg = curl_error($ch);
+            curl_close($ch);
+            fclose($fp);
+            if (file_exists($savePath)) {
+                unlink($savePath);
+            }
+            throw new Exception("cURL Error during downloadAudio: $errorMsg");
+        }
+
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
         fclose($fp);

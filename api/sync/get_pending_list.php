@@ -34,7 +34,7 @@ if (!$dateStart || !$dateEnd) {
     exit;
 }
 
-$companyId = 1; // Default to 1 based on planning
+$companyId = $_GET['company_id'] ?? 1;
 
 try {
     // 1. Connect to both DBs
@@ -62,8 +62,37 @@ try {
     $oneCall = new OneCallClient($onecallConfig['base_url'], $onecallConfig['username'], $onecallConfig['password']);
     
     // 3. Fetch recordings from OneCall
+    // OneCall stores data in UTC, so we must subtract 7 hours from the local time bounds
+    $startDateTime = DateTime::createFromFormat('Ymd_His', $dateStart);
+    if ($startDateTime) {
+        $startDateTime->modify('-7 hours');
+        $dateStart = $startDateTime->format('Ymd_His');
+    }
+    
+    $endDateTime = DateTime::createFromFormat('Ymd_His', $dateEnd);
+    if ($endDateTime) {
+        $endDateTime->modify('-7 hours');
+        $dateEnd = $endDateTime->format('Ymd_His');
+    }
+
     $recordingsData = $oneCall->getRecordings($dateStart, $dateEnd);
-    $recordings = $recordingsData['recordings'] ?? [];
+    
+    // Auto-detect the recordings array structure
+    $recordings = [];
+    if (isset($recordingsData['objects']) && is_array($recordingsData['objects'])) {
+        $recordings = $recordingsData['objects']; // DTAC returns the array in 'objects'
+    } elseif (isset($recordingsData['recordings']) && is_array($recordingsData['recordings'])) {
+        $recordings = $recordingsData['recordings'];
+    } elseif (isset($recordingsData['data']) && is_array($recordingsData['data'])) {
+        $recordings = $recordingsData['data'];
+    } elseif (isset($recordingsData['recording']) && is_array($recordingsData['recording'])) {
+        $recordings = $recordingsData['recording'];
+    } elseif (is_array($recordingsData) && !isset($recordingsData['success']) && !isset($recordingsData['recordings']) && !isset($recordingsData['objects'])) {
+        // Fallback for direct array, but exclude associative objects
+        if (array_keys($recordingsData) === range(0, count($recordingsData) - 1)) {
+            $recordings = $recordingsData;
+        }
+    }
     
     // 4. Check local gdrive_file_index for existing call_codes
     $stmt = $pdoLocal->prepare("SELECT call_code FROM gdrive_file_index WHERE company_id = ? AND call_code IS NOT NULL");
@@ -80,9 +109,9 @@ try {
         if (!isset($syncedIdsSet[$callId])) {
             $pendingList[] = [
                 'id' => $callId,
-                'start' => $rec['start'] ?? '',
-                'caller' => $rec['caller'] ?? $rec['from'] ?? '',
-                'receiver' => $rec['receiver'] ?? $rec['to'] ?? '',
+                'start' => $rec['timestamp'] ?? $rec['start'] ?? '',
+                'caller' => $rec['localParty'] ?? $rec['caller'] ?? $rec['from'] ?? '',
+                'receiver' => $rec['remoteParty'] ?? $rec['receiver'] ?? $rec['to'] ?? '',
                 'direction' => $rec['direction'] ?? 'OUT'
             ];
         }
@@ -92,7 +121,8 @@ try {
         'success' => true,
         'count' => count($pendingList),
         'total_fetched' => count($recordings),
-        'data' => $pendingList
+        'data' => $pendingList,
+        'debug_raw' => $recordingsData // added for debugging
     ]);
 
 } catch (Exception $e) {

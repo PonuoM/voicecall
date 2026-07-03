@@ -79,7 +79,8 @@
         <div class="main-panel">
             <div class="header">
                 <div>
-                    <h2 style="margin-top:0;">Audio Sync Dashboard</h2>
+                    <h2 style="margin-top:0; margin-bottom:5px;">Audio Sync Dashboard</h2>
+                    <p id="companyInfo" style="font-size:14px; color:#1a73e8; margin-top:0; font-weight:bold;"></p>
                     <div style="margin-top: 10px; display: flex; gap: 10px;">
                         <button class="btn-shortcut" onclick="setDateShortcut('today')">Today</button>
                         <button class="btn-shortcut" onclick="setDateShortcut('yesterday')">Yesterday</button>
@@ -136,7 +137,7 @@
 
         async function fetchCalendarStats() {
             try {
-                const res = await fetch('../api/sync/get_calendar_stats.php');
+                const res = await fetch(`../api/sync/get_calendar_stats.php?company_id=${currentCompanyId}`);
                 const data = await res.json();
                 if (data.success) {
                     calendarStats = data.data;
@@ -197,11 +198,28 @@
             }
         }
 
-        // Initialize Calendar
-        fetchCalendarStats();
-
-
+        // Initialize Calendar (moved below session init)
         // === Sync Logic ===
+        let currentCompanyId = null;
+        let currentFolderId = null;
+        
+        // Init session
+        const sessionData = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
+        if (sessionData) {
+            try {
+                const user = JSON.parse(sessionData);
+                currentCompanyId = user.company_id;
+                document.getElementById('companyInfo').innerText = user.company_name ? `บริษัท: ${user.company_name}` : `Company ID: ${currentCompanyId}`;
+                // Now that company ID is known, fetch stats
+                fetchCalendarStats();
+            } catch (e) {}
+        }
+        
+        if (!currentCompanyId) {
+            alert("กรุณาเข้าสู่ระบบผ่านหน้าหลัก (index.html) ก่อนใช้งาน Dashboard นี้นะครับ");
+            // window.location.href = '../index.html'; // Optional redirect
+        }
+
         let pendingFiles = [];
         let totalFiles = 0;
         let successCount = 0;
@@ -254,6 +272,11 @@
             const formattedStart = formatDateTimeForAPI(startVal);
             const formattedEnd = formatDateTimeForAPI(endVal);
 
+            if (!currentCompanyId) {
+                alert("กรุณาเข้าสู่ระบบก่อนครับ");
+                return;
+            }
+
             isSyncing = true;
             document.getElementById('btnSync').disabled = true;
             document.getElementById('btnSync').innerText = "Loading List...";
@@ -266,8 +289,21 @@
             updateStats();
 
             try {
+                // 0. Resolve Folder ID (only once per session/company)
+                if (!currentFolderId) {
+                    document.getElementById('btnSync').innerText = "Finding Folder...";
+                    const folderRes = await fetch(`../api/sync/get_folder_id.php?company_id=${currentCompanyId}`);
+                    const folderData = await folderRes.json();
+                    
+                    if (!folderData.success) {
+                        throw new Error("Folder lookup failed: " + (folderData.message || "Unknown error"));
+                    }
+                    currentFolderId = folderData.folder_id;
+                }
+
                 // 1. Get Pending List
-                const res = await fetch(`../api/sync/get_pending_list.php?start_date=${formattedStart}&end_date=${formattedEnd}`);
+                document.getElementById('btnSync').innerText = "Loading List...";
+                const res = await fetch(`../api/sync/get_pending_list.php?company_id=${currentCompanyId}&start_date=${formattedStart}&end_date=${formattedEnd}`);
                 const data = await res.json();
                 
                 if (!data.success) {
@@ -284,9 +320,15 @@
                     return;
                 }
 
+                const userConfirmed = confirm(`พบไฟล์เสียงที่รอการโอนย้ายจำนวน ${totalFiles} ไฟล์\n\nคุณต้องการเริ่มต้นการโอนย้ายไฟล์ลง Google Drive เลยหรือไม่?`);
+                if (!userConfirmed) {
+                    resetUI();
+                    return;
+                }
+
                 document.getElementById('btnSync').innerText = "Syncing...";
                 // 2. Start Processing Queue
-                processNextFile();
+                processBatch();
 
             } catch (err) {
                 alert("Error: " + err.message);
@@ -294,7 +336,7 @@
             }
         }
 
-        async function processNextFile() {
+        async function processBatch() {
             if (currentIndex >= totalFiles) {
                 alert("Sync Complete!");
                 fetchCalendarStats(); // Refresh calendar counts!
@@ -302,41 +344,50 @@
                 return;
             }
 
-            const file = pendingFiles[currentIndex];
-            updateProgressBar();
-
-            try {
-                const formData = new FormData();
-                formData.append('id', file.id);
-                formData.append('start', file.start);
-                formData.append('caller', file.caller);
-                formData.append('receiver', file.receiver);
-                formData.append('direction', file.direction);
-
-                const res = await fetch('../api/sync/process_single.php', {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await res.json();
-
-                if (data.success) {
-                    successCount++;
-                    const statusClass = data.skipped ? 'status-skipped' : 'status-synced';
-                    const statusText = data.skipped ? 'Skipped' : 'Synced';
-                    appendLog(file.id, data.driveFileId || '-', statusText, statusClass);
-                } else {
-                    failCount++;
-                    appendLog(file.id, '-', `Failed: ${data.message}`, 'status-failed');
-                }
-            } catch (err) {
-                failCount++;
-                appendLog(file.id, '-', `Error: ${err.message}`, 'status-failed');
+            const batchSize = 10;
+            const batch = [];
+            for (let i = 0; i < batchSize && currentIndex < totalFiles; i++) {
+                batch.push(pendingFiles[currentIndex]);
+                currentIndex++;
             }
 
-            currentIndex++;
+            const promises = batch.map(async (file) => {
+                try {
+                    const formData = new FormData();
+                    formData.append('id', file.id);
+                    formData.append('start', file.start);
+                    formData.append('caller', file.caller);
+                    formData.append('receiver', file.receiver);
+                    formData.append('direction', file.direction);
+                    formData.append('company_id', currentCompanyId);
+                    formData.append('folder_id', currentFolderId);
+
+                    const res = await fetch('../api/sync/process_single.php', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+
+                    if (data.success) {
+                        successCount++;
+                        const statusClass = data.skipped ? 'status-skipped' : 'status-synced';
+                        const statusText = data.skipped ? 'Skipped' : 'Synced';
+                        appendLog(file.id, data.driveFileId || '-', statusText, statusClass);
+                    } else {
+                        failCount++;
+                        appendLog(file.id, '-', `Failed: ${data.message}`, 'status-failed');
+                    }
+                } catch (err) {
+                    failCount++;
+                    appendLog(file.id, '-', `Error: ${err.message}`, 'status-failed');
+                }
+                updateProgressBar(); // Update per file completion
+            });
+
+            await Promise.all(promises);
             updateStats();
             
-            setTimeout(processNextFile, 100); 
+            setTimeout(processBatch, 100); 
         }
 
         function updateProgressBar() {

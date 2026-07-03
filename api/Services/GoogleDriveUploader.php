@@ -1,45 +1,33 @@
 <?php
 class GoogleDriveUploader {
-    private $serviceAccountJsonPath;
+    private $clientId;
+    private $clientSecret;
+    private $refreshToken;
     private $folderId;
     private $accessToken;
 
-    public function __construct($serviceAccountJsonPath, $folderId) {
-        $this->serviceAccountJsonPath = $serviceAccountJsonPath;
+    public function __construct($clientId, $clientSecret, $refreshToken, $folderId) {
+        $this->clientId = $clientId;
+        $this->clientSecret = $clientSecret;
+        $this->refreshToken = $refreshToken;
         $this->folderId = $folderId;
     }
 
     private function getAccessToken() {
         if ($this->accessToken) return $this->accessToken;
 
-        $json = json_decode(file_get_contents($this->serviceAccountJsonPath), true);
-        if (!$json || !isset($json['private_key'])) throw new Exception("Invalid service account JSON");
-
-        $header = json_encode(['alg' => 'RS256', 'typ' => 'JWT']);
-        $now = time();
-        $claim = json_encode([
-            'iss' => $json['client_email'],
-            'scope' => 'https://www.googleapis.com/auth/drive.file', // Need this scope for uploading
-            'aud' => 'https://oauth2.googleapis.com/token',
-            'exp' => $now + 3600,
-            'iat' => $now
-        ]);
-
-        $b64Header = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($header));
-        $b64Claim = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($claim));
-
-        $signature = '';
-        openssl_sign($b64Header . '.' . $b64Claim, $signature, $json['private_key'], 'sha256');
-        $b64Sig = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
-
-        $jwt = $b64Header . '.' . $b64Claim . '.' . $b64Sig;
+        if (!$this->refreshToken) {
+            throw new Exception("Missing Google Drive Refresh Token. Please run setup_oauth.php first.");
+        }
 
         $ch = curl_init('https://oauth2.googleapis.com/token');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
-            'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-            'assertion' => $jwt
+            'client_id' => $this->clientId,
+            'client_secret' => $this->clientSecret,
+            'refresh_token' => $this->refreshToken,
+            'grant_type' => 'refresh_token'
         ]));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
@@ -52,7 +40,8 @@ class GoogleDriveUploader {
             $this->accessToken = $data['access_token'];
             return $this->accessToken;
         }
-        throw new Exception('Failed to get token: ' . $response);
+        
+        throw new Exception('Failed to refresh Google Drive token: ' . $response);
     }
 
     public function uploadFile($filePath, $fileName, $mimeType = 'audio/wav') {
@@ -94,6 +83,35 @@ class GoogleDriveUploader {
             return $data['id']; // Return the Google Drive File ID
         }
         
-        throw new Exception("Google Drive Upload failed: " . $response);
+        throw new Exception("Google Drive Upload failed: HTTP $httpCode " . $response);
+    }
+
+    public function findFolderByName($folderName, $parentFolderId = null) {
+        $token = $this->getAccessToken();
+        
+        $query = "mimeType='application/vnd.google-apps.folder' and name='" . str_replace("'", "\\'", $folderName) . "' and trashed=false";
+        if ($parentFolderId) {
+            $query .= " and '{$parentFolderId}' in parents";
+        }
+
+        $url = 'https://www.googleapis.com/drive/v3/files?q=' . urlencode($query) . '&fields=files(id,name)&spaces=drive';
+        
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "Authorization: Bearer {$token}"
+        ]);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+        if ($httpCode === 200 && isset($data['files']) && count($data['files']) > 0) {
+            return $data['files'][0]['id']; // Return the first matching folder ID
+        }
+        
+        return null; // Folder not found
     }
 }

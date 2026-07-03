@@ -441,6 +441,7 @@ async function doLogin() {
             loggedInUser = data.user;
             aiToken = data.user.api_token || null;
             sessionStorage.setItem('voicecall_user', JSON.stringify(data.user));
+            localStorage.setItem('voicecall_user_shared', JSON.stringify(data.user)); // For sync_dashboard new tab
             showDashboard();
         } else {
             showLoginError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
@@ -463,6 +464,7 @@ function doLogout() {
     aiToken = null;
     aiStatusMap = {};
     sessionStorage.removeItem('voicecall_user');
+    localStorage.removeItem('voicecall_user_shared');
     if (accessToken) { google.accounts.oauth2.revoke(accessToken, ()=>{}); accessToken = null; }
     document.getElementById('loginScreen').classList.remove('hidden');
     document.getElementById('loginUsername').value = '';
