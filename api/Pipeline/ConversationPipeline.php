@@ -1,9 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Agents/SttAgent.php';
-require_once __DIR__ . '/../Agents/ConversationUnderstandingAgent.php';
-require_once __DIR__ . '/../Agents/EntityExtractionAgent.php';
-require_once __DIR__ . '/../Agents/ComplianceAgent.php';
+require_once __DIR__ . '/../Agents/UnifiedPipelineAgent.php';
 require_once __DIR__ . '/../Agents/KnowledgeIndexerAgent.php';
 
 /**
@@ -27,14 +25,11 @@ class ConversationPipeline
                 throw new RuntimeException('Transcription produced no text (silent or unsupported audio?)');
             }
 
-            self::setStatus($pdo, $conversationId, 'analyzing');
-            ConversationUnderstandingAgent::run($pdo, $conversationId, $transcriptText);
-
-            self::setStatus($pdo, $conversationId, 'extracting');
-            EntityExtractionAgent::run($pdo, $erp, $conversationId, $transcriptText);
-
-            self::setStatus($pdo, $conversationId, 'checking_compliance');
-            ComplianceAgent::run($pdo, $conversationId, (int) $conversation['company_id'], $transcriptText);
+            self::setStatus($pdo, $conversationId, 'analyzing_unified');
+            $externalContext = json_decode($conversation['external_context'] ?? 'null', true);
+            $contextString = $externalContext ? json_encode($externalContext, JSON_UNESCAPED_UNICODE) : null;
+            
+            UnifiedPipelineAgent::run($pdo, $erp, $conversationId, (int) $conversation['company_id'], $transcriptText, $contextString);
 
             self::setStatus($pdo, $conversationId, 'indexing');
             KnowledgeIndexerAgent::run($pdo, $conversationId, $transcriptText);
