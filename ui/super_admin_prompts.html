@@ -192,7 +192,7 @@
                     const sel = document.getElementById('companySelect');
                     sel.innerHTML = '<option value="">-- กรุณาเลือกบริษัท --</option>';
                     data.data.forEach(c => {
-                        sel.innerHTML += `<option value="${c.id}">[${c.id}] ${c.company_name}</option>`;
+                        sel.innerHTML += `<option value="${c.id}">[${c.id}] ${c.name}</option>`;
                     });
                 }
             } catch (e) {
