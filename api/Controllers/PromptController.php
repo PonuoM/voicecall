@@ -4,7 +4,7 @@ require_once __DIR__ . '/../Agents/UnifiedPipelineAgent.php';
 
 function handle_prompts(PDO $pdo, $currentUser, $id, $action)
 {
-    if (!$currentUser || !$currentUser['is_super_admin']) {
+    if (!$currentUser || empty($currentUser['erp_is_super_admin'])) {
         json_response(['ok' => false, 'error' => 'FORBIDDEN', 'message' => 'Super Admin only'], 403);
     }
 
