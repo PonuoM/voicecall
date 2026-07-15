@@ -13,6 +13,18 @@ function handle_prompts(PDO $pdo, $currentUser, $id, $action)
         json_response(['ok' => false, 'error' => 'BAD_REQUEST', 'message' => 'Missing company_id'], 400);
     }
 
+    // Auto-migrate table
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ai_prompts (
+            company_id INT NOT NULL,
+            agent_name VARCHAR(50) NOT NULL,
+            additional_prompt TEXT,
+            max_tokens INT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (company_id, agent_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ");
+
     if (method() === 'GET') {
         $stmt = $pdo->prepare("SELECT additional_prompt, max_tokens FROM ai_prompts WHERE company_id = ? AND agent_name = 'unified'");
         $stmt->execute([$companyId]);
