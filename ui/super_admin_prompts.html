@@ -186,14 +186,12 @@
         async function init() {
             try {
                 // Fetch companies
-                const res = await fetch(`${apiBase}/conversations/0/companies`, {
-                    headers: getAuthHeaders()
-                });
+                const res = await fetch(`../api/sync/companies_admin.php`);
                 const data = await res.json();
-                if (data.ok && data.companies) {
+                if (data.success && data.data) {
                     const sel = document.getElementById('companySelect');
                     sel.innerHTML = '<option value="">-- กรุณาเลือกบริษัท --</option>';
-                    data.companies.forEach(c => {
+                    data.data.forEach(c => {
                         sel.innerHTML += `<option value="${c.id}">[${c.id}] ${c.company_name}</option>`;
                     });
                 }
