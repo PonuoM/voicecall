@@ -28,18 +28,23 @@ $erpDb = [
 
     // $driveConfig removed, moved lower
 
-$callId = $_POST['id'] ?? '';
+// Support both JSON and FormData
+$input = json_decode(file_get_contents('php://input'), true) ?? [];
+$isJson = !empty($input);
+
+$callId = $isJson ? ($input['record']['id'] ?? '') : ($_POST['id'] ?? '');
 if (!$callId) {
     echo json_encode(['success' => false, 'message' => 'Missing call ID']);
     exit;
 }
 
-$startTime = !empty($_POST['start']) ? $_POST['start'] : date('Y-m-d H:i:s');
-$caller = !empty($_POST['caller']) ? $_POST['caller'] : '000000000';
-$receiver = !empty($_POST['receiver']) ? $_POST['receiver'] : '000000000';
-$direction = !empty($_POST['direction']) ? $_POST['direction'] : 'OUT';
-$companyId = $_POST['company_id'] ?? 1; 
-$folderId = $_POST['folder_id'] ?? '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet';
+$startTime = $isJson ? (!empty($input['record']['start']) ? $input['record']['start'] : date('Y-m-d H:i:s')) : (!empty($_POST['start']) ? $_POST['start'] : date('Y-m-d H:i:s'));
+$caller = $isJson ? (!empty($input['record']['caller']) ? $input['record']['caller'] : '000000000') : (!empty($_POST['caller']) ? $_POST['caller'] : '000000000');
+$receiver = $isJson ? (!empty($input['record']['receiver']) ? $input['record']['receiver'] : '000000000') : (!empty($_POST['receiver']) ? $_POST['receiver'] : '000000000');
+$direction = $isJson ? (!empty($input['record']['direction']) ? $input['record']['direction'] : 'OUT') : (!empty($_POST['direction']) ? $_POST['direction'] : 'OUT');
+$companyId = $isJson ? ($input['company_id'] ?? 1) : ($_POST['company_id'] ?? 1); 
+$folderId = $isJson ? ($input['folder_id'] ?? '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet') : ($_POST['folder_id'] ?? '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet');
+$allowDuplicates = $isJson ? ($input['allow_duplicates'] ?? false) : ($_POST['allow_duplicates'] ?? false);
 
 try {
     // 1. DB connections
@@ -100,13 +105,28 @@ try {
     $directionUpper = strtoupper($direction);
     $fileName = "{$dateStr}_{$callId}-{$encodedCaller}-{$encodedReceiver}-{$directionUpper}.wav";
     $tempFile = sys_get_temp_dir() . '/' . $fileName;
-    // 4. Download and Upload
-    $audioUrl = rtrim($onecallConfig['base_url'], '/') . "/orktrack/rest/mediastream/{$callId}";
-    $oneCall->downloadAudio($audioUrl, $tempFile);
-    $sizeBytes = filesize($tempFile);
     
-    $driveFileId = $uploader->uploadFile($tempFile, $fileName);
-    unlink($tempFile);
+    // Deduplication Best Practice: Check if file exists in Google Drive by timestamp
+    $existingFileId = null;
+    if (!$allowDuplicates) {
+        $existingFileId = $uploader->checkFileExistsByTimestamp($dateStr);
+    }
+    
+    $isSkipped = false;
+    
+    if ($existingFileId) {
+        $driveFileId = $existingFileId;
+        $sizeBytes = 0;
+        $isSkipped = true;
+    } else {
+        // 4. Download and Upload
+        $audioUrl = rtrim($onecallConfig['base_url'], '/') . "/orktrack/rest/mediastream/{$callId}";
+        $oneCall->downloadAudio($audioUrl, $tempFile);
+        $sizeBytes = filesize($tempFile);
+        
+        $driveFileId = $uploader->uploadFile($tempFile, $fileName);
+        unlink($tempFile);
+    }
     
     // 5. Update Local DB (voicecall_ai.gdrive_file_index)
     $insertStmt = $pdoLocal->prepare("
@@ -130,7 +150,7 @@ try {
         $sizeBytes
     ]);
     
-    echo json_encode(['success' => true, 'driveFileId' => $driveFileId]);
+    echo json_encode(['success' => true, 'driveFileId' => $driveFileId, 'skipped' => $isSkipped]);
 
 } catch (Exception $e) {
     if (isset($tempFile) && file_exists($tempFile)) {
