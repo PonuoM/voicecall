@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>ตรวจสอบทุจริต - Fraud Review</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <div class="max-w-[1400px] mx-auto px-4 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-rose-600 rounded-xl flex items-center justify-center">
+                <i class="w-5 h-5 text-white" data-lucide="shield-alert"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold leading-tight">ตรวจสอบทุจริต — ช่องทางรับเงินนอกระบบ</h1>
+                <p class="text-[10px] text-slate-500 uppercase tracking-wider" id="companyInfo">Fraud Review</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="../index.html" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="arrow-left"></i> กลับหน้าหลัก
+            </a>
+            <button onclick="loadAll()" class="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="refresh-cw"></i> รีเฟรช
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-[1400px] mx-auto p-4 space-y-4">
+
+    <!-- Summary cards -->
+    <section class="grid grid-cols-2 md:grid-cols-5 gap-3" id="summaryCards">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase">รอตรวจสอบ</p>
+            <p class="text-2xl font-bold text-amber-600 mt-1" id="cardPending">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase">ระดับ Critical</p>
+            <p class="text-2xl font-bold text-rose-600 mt-1" id="cardCritical">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase">ยืนยันแล้ว (ทุจริตจริง)</p>
+            <p class="text-2xl font-bold text-red-700 mt-1" id="cardConfirmed">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase">ปัดตกแล้ว</p>
+            <p class="text-2xl font-bold text-slate-500 mt-1" id="cardDismissed">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase">ทั้งหมด</p>
+            <p class="text-2xl font-bold text-slate-800 mt-1" id="cardTotal">—</p>
+        </div>
+    </section>
+
+    <div class="grid lg:grid-cols-3 gap-4 items-start">
+
+        <!-- Employee ranking -->
+        <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+                <i class="w-4 h-4 text-slate-500" data-lucide="users"></i>
+                <h2 class="text-sm font-bold">อันดับความเสี่ยงรายพนักงาน</h2>
+            </div>
+            <div class="max-h-[420px] overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
+                        <tr>
+                            <th class="px-3 py-2">พนักงาน</th>
+                            <th class="px-2 py-2 text-center">Critical</th>
+                            <th class="px-2 py-2 text-center">Flag</th>
+                            <th class="px-2 py-2 text-center">รอตรวจ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="employeeBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Checks list -->
+        <section class="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center gap-2">
+                <i class="w-4 h-4 text-slate-500" data-lucide="list-checks"></i>
+                <h2 class="text-sm font-bold flex-1">รายการตรวจพบ</h2>
+                <select id="filterReview" onchange="loadChecks()" class="form-select rounded-lg border-slate-200 text-xs py-1">
+                    <option value="pending" selected>รอตรวจสอบ</option>
+                    <option value="confirmed">ยืนยันแล้ว</option>
+                    <option value="dismissed">ปัดตกแล้ว</option>
+                    <option value="">ทุกสถานะรีวิว</option>
+                </select>
+                <select id="filterRisk" onchange="loadChecks()" class="form-select rounded-lg border-slate-200 text-xs py-1">
+                    <option value="">ทุกระดับเสี่ยง</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                </select>
+                <select id="filterStatus" onchange="loadChecks()" class="form-select rounded-lg border-slate-200 text-xs py-1">
+                    <option value="flagged" selected>เฉพาะที่ถูก flag</option>
+                    <option value="clear">เฉพาะที่ตรงบัญชีบริษัท</option>
+                    <option value="all">ทั้งหมด</option>
+                </select>
+            </div>
+            <div id="checksList" class="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
+                <div class="p-8 text-center text-slate-400 text-sm">กำลังโหลด...</div>
+            </div>
+        </section>
+    </div>
+</main>
+
+<script>
+const API_BASE = '../api/index.php'; // same convention as index.html CONFIG.AI_API_URL (no .htaccess rewrite)
+let aiToken = null;
+
+// Same session source as sync_dashboard.html: user object written by login.php via index.html.
+(function initSession() {
+    const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
+    if (!raw) {
+        alert('กรุณาเข้าสู่ระบบผ่านหน้าหลักก่อนใช้งานหน้านี้');
+        window.location.href = '../index.html';
+        return;
+    }
+    try {
+        const user = JSON.parse(raw);
+        aiToken = user.api_token || null;
+        document.getElementById('companyInfo').innerText =
+            user.company_name ? `บริษัท: ${user.company_name}` : 'Fraud Review';
+    } catch (e) { console.error(e); }
+    if (!aiToken) {
+        alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
+        window.location.href = '../index.html';
+    }
+})();
+
+function authHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiToken };
+}
+
+const RISK_BADGE = {
+    critical: 'bg-rose-100 text-rose-700 border border-rose-200',
+    high:     'bg-orange-100 text-orange-700 border border-orange-200',
+    medium:   'bg-amber-100 text-amber-700 border border-amber-200',
+    low:      'bg-slate-100 text-slate-600 border border-slate-200',
+};
+const CHANNEL_LABEL = {
+    bank_account: 'เลขบัญชีธนาคาร',
+    promptpay: 'พร้อมเพย์',
+    line_id: 'LINE ID',
+    wallet: 'e-Wallet',
+    other: 'อื่นๆ',
+    number_sequence: 'ชุดตัวเลข (ตรวจโดยระบบ)',
+};
+const SPOKEN_LABEL = { employee: '🧑‍💼 พนักงานเป็นผู้แจ้ง', customer: '🙋 ลูกค้าเป็นผู้แจ้ง', unknown: '❓ ระบุผู้พูดไม่ได้' };
+
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Recordings in the main dashboard list phones in local format — convert +66x/66x to 0x so the
+// deep-link search actually matches.
+function localPhone(p) {
+    const d = String(p || '').replace(/\D+/g, '');
+    return (d.startsWith('66') && d.length >= 10) ? '0' + d.slice(2) : d;
+}
+
+async function loadSummary() {
+    const res = await fetch(`${API_BASE}/fraud/summary`, { headers: authHeaders() });
+    const data = await res.json();
+    if (!data.ok) return;
+    const o = data.overall || {};
+    document.getElementById('cardPending').innerText = o.pending ?? 0;
+    document.getElementById('cardCritical').innerText = o.critical ?? 0;
+    document.getElementById('cardConfirmed').innerText = o.confirmed ?? 0;
+    document.getElementById('cardDismissed').innerText = o.dismissed ?? 0;
+    document.getElementById('cardTotal').innerText = o.total ?? 0;
+
+    const tbody = document.getElementById('employeeBody');
+    tbody.innerHTML = '';
+    (data.by_employee || []).forEach(e => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50';
+        tr.innerHTML = `
+            <td class="px-3 py-2 font-medium">${esc(e.employee_name)}</td>
+            <td class="px-2 py-2 text-center ${Number(e.critical) > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}">${e.critical}</td>
+            <td class="px-2 py-2 text-center">${e.flagged}</td>
+            <td class="px-2 py-2 text-center ${Number(e.pending) > 0 ? 'text-amber-600 font-semibold' : 'text-slate-400'}">${e.pending}</td>`;
+        tbody.appendChild(tr);
+    });
+    if (!(data.by_employee || []).length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">ยังไม่มีข้อมูล</td></tr>';
+    }
+}
+
+async function loadChecks() {
+    const list = document.getElementById('checksList');
+    list.innerHTML = '<div class="p-8 text-center text-slate-400 text-sm">กำลังโหลด...</div>';
+
+    const params = new URLSearchParams();
+    const review = document.getElementById('filterReview').value;
+    const risk = document.getElementById('filterRisk').value;
+    const status = document.getElementById('filterStatus').value;
+    if (review) params.set('review_status', review);
+    if (risk) params.set('risk_level', risk);
+    params.set('status', status || 'all');
+
+    const res = await fetch(`${API_BASE}/fraud?${params}`, { headers: authHeaders() });
+    const data = await res.json();
+    if (!data.ok) {
+        list.innerHTML = `<div class="p-8 text-center text-rose-500 text-sm">โหลดข้อมูลไม่สำเร็จ: ${esc(data.message || data.error)}</div>`;
+        return;
+    }
+    if (!data.data.length) {
+        list.innerHTML = '<div class="p-8 text-center text-slate-400 text-sm">ไม่มีรายการตามเงื่อนไขที่เลือก 🎉</div>';
+        return;
+    }
+
+    list.innerHTML = '';
+    data.data.forEach(item => list.appendChild(renderCheck(item)));
+    lucide.createIcons();
+}
+
+function renderCheck(item) {
+    const div = document.createElement('div');
+    div.className = 'p-4 fade-in hover:bg-slate-50/50';
+    const isClear = item.status === 'clear';
+    const badge = isClear
+        ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">ตรงบัญชีบริษัท</span>'
+        : `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${RISK_BADGE[item.risk_level] || RISK_BADGE.low}">${item.risk_level}</span>`;
+    const reviewBadge = item.review_status === 'confirmed'
+        ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white">ยืนยันทุจริต</span>'
+        : item.review_status === 'dismissed'
+            ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">ปัดตกแล้ว</span>'
+            : '';
+    const callInfo = [item.call_date, item.call_time, item.call_code ? `Call ${esc(item.call_code)}` : null]
+        .filter(Boolean).join(' · ');
+
+    div.innerHTML = `
+        <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            ${badge} ${reviewBadge}
+            <span class="text-xs font-bold text-slate-700">${CHANNEL_LABEL[item.channel_type] || esc(item.channel_type)}</span>
+            ${item.detected_value ? `<code class="text-xs bg-slate-100 px-1.5 py-0.5 rounded font-mono">${esc(item.detected_value)}</code>` : ''}
+            ${item.bank_name ? `<span class="text-xs text-slate-500">(${esc(item.bank_name)})</span>` : ''}
+            <span class="text-xs text-slate-500">${SPOKEN_LABEL[item.spoken_by] || ''}</span>
+            ${item.source === 'regex' ? '<span class="text-[10px] text-slate-400 border border-slate-200 rounded px-1">regex</span>' : ''}
+        </div>
+        <p class="text-sm text-slate-800 mb-1">${esc(item.explanation || '')}</p>
+        ${item.purpose ? `<p class="text-xs text-slate-500 mb-1">บริบท: ${esc(item.purpose)}</p>` : ''}
+        ${item.evidence ? `<blockquote class="text-xs text-slate-600 bg-slate-50 border-l-2 border-slate-300 pl-2 py-1 my-1.5 italic">"${esc(item.evidence)}"</blockquote>` : ''}
+        <div class="flex flex-wrap items-center justify-between gap-2 mt-2">
+            <p class="text-[11px] text-slate-400">
+                ${esc(callInfo)} · พนักงาน: <b>${esc(item.erp_employee_name || 'ไม่ระบุ')}</b>
+                · ลูกค้า: ${esc(item.erp_customer_name || 'ไม่ระบุ')}
+                · ${esc(item.caller_phone || '')} → ${esc(item.receiver_phone || '')}
+                ${item.review_note ? `<br>บันทึกผู้ตรวจ (${esc(item.reviewed_by_name || '')}): ${esc(item.review_note)}` : ''}
+            </p>
+            <div class="flex gap-1.5">
+                ${item.review_status === 'pending' && !isClear ? `
+                    <button onclick="review(${item.id}, 'confirmed')" class="text-xs bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg font-medium">ยืนยันทุจริต</button>
+                    <button onclick="review(${item.id}, 'dismissed')" class="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg font-medium">ปัดตก</button>
+                ` : ''}
+                <a href="../index.html?search=${encodeURIComponent(localPhone(item.caller_phone) || item.call_code || '')}" target="_blank"
+                   class="text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 px-2.5 py-1 rounded-lg font-medium">ไปที่สายนี้</a>
+            </div>
+        </div>`;
+    return div;
+}
+
+async function review(id, decision) {
+    const label = decision === 'confirmed' ? 'ยืนยันว่าเป็นการทุจริต' : 'ปัดตก (ไม่ใช่การทุจริต)';
+    const note = prompt(`${label}\nใส่บันทึกเพิ่มเติม (เว้นว่างได้):`);
+    if (note === null) return; // cancelled
+    const res = await fetch(`${API_BASE}/fraud/${id}/review`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ decision, note }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+        alert('บันทึกไม่สำเร็จ: ' + (data.message || data.error));
+        return;
+    }
+    loadAll();
+}
+
+function loadAll() {
+    loadSummary().catch(console.error);
+    loadChecks().catch(console.error);
+}
+
+loadAll();
+lucide.createIcons();
+</script>
+</body>
+</html>

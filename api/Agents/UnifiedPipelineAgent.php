@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../Services/OpenRouterClient.php';
 require_once __DIR__ . '/../Services/ErpLookupService.php';
+require_once __DIR__ . '/../Services/FraudCheckService.php';
 
 /**
  * Unified Pipeline Agent - Best Practice: Token Optimization.
@@ -54,8 +55,30 @@ Read the transcript and context, and produce a structured analysis. Output stric
         "suggested_improvement": "what to do (in Thai)"
       }
     ]
+  },
+  "fraud_signals": {
+    "payment_channels": [
+      {
+        "channel_type": "bank_account|promptpay|line_id|wallet|other",
+        "raw_mention": "the exact form spoken in the transcript",
+        "normalized_value": "digits only for bank_account/promptpay, the ID itself for line_id",
+        "bank_name": "bank name if mentioned, else null",
+        "spoken_by": "employee|customer|unknown",
+        "purpose": "why this channel was given (in Thai)",
+        "evidence": "verbatim quote from transcript"
+      }
+    ]
   }
 }
+
+For "fraud_signals.payment_channels": capture EVERY mention of a destination for transferring
+money or sending payment slips — bank account numbers, PromptPay numbers, LINE IDs given for
+payment/slip/ordering, e-wallets (TrueMoney etc). Numbers spoken as Thai words
+("สองหกสี่สามศูนย์...") MUST be converted to Arabic digits in "normalized_value". Include a
+phone number ONLY when it is referenced as a PromptPay/payment destination — not numbers
+exchanged merely for calling back. Do NOT decide whether a channel is fraudulent; report
+every mention neutrally (verification happens outside the model). If none, return
+{"payment_channels": []}.
 PROMPT;
 
     public static function run(PDO $pdo, PDO $erp, int $conversationId, int $companyId, string $transcriptText, ?string $externalContext = null): array
@@ -210,6 +233,18 @@ PROMPT;
                 $v['explanation'] ?? null,
                 $v['suggested_improvement'] ?? null,
             ]);
+        }
+
+        // 7. Fraud cross-check — the LLM above only extracted payment-channel mentions; the
+        // verdict (is this an official company account?) is computed deterministically against
+        // primacom_mini_erp.bank_account in FraudCheckService, never by the model.
+        try {
+            $paymentChannels = $result['fraud_signals']['payment_channels'] ?? [];
+            FraudCheckService::run($pdo, $erp, $conversationId, $companyId, is_array($paymentChannels) ? $paymentChannels : [], $transcriptText);
+        } catch (Throwable $e) {
+            // Non-fatal: the extraction survives in extracted_entities.raw_json, so a failed
+            // cross-check (e.g. ERP unreachable) is recoverable without paying for the LLM again.
+            file_put_contents(LOG_DIR . '/fraud_error.log', date('Y-m-d H:i:s') . " conversation={$conversationId} " . $e->getMessage() . "\n", FILE_APPEND);
         }
 
         return $result;

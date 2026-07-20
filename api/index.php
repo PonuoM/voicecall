@@ -14,6 +14,11 @@ try {
             handle_compliance($pdo, $currentUser, $id, $action);
             break;
 
+        case 'fraud':
+            require_once __DIR__ . '/Controllers/FraudController.php';
+            handle_fraud($pdo, $currentUser, $id, $action);
+            break;
+
         case 'assistant':
             require_once __DIR__ . '/Controllers/AssistantController.php';
             handle_assistant($pdo, $currentUser, $id, $action);

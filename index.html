@@ -126,6 +126,10 @@
                     class="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
                     <i class="w-4 h-4" data-lucide="refresh-cw"></i> Sync ไฟล์เสียง
                 </a>
+                <a href="./ui/fraud_dashboard.html" target="_blank"
+                    class="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                    <i class="w-4 h-4" data-lucide="shield-alert"></i> ตรวจทุจริต
+                </a>
                 <a id="btnCompanySettings" href="./ui/super_admin_companies.html" target="_blank"
                     class="hidden items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
                     <i class="w-4 h-4" data-lucide="settings"></i> จัดการบริษัท
@@ -1238,7 +1242,7 @@ async function viewAiResult(uid) {
 }
 
 function renderAiModalBody(data) {
-    const c = data.conversation, s = data.summary, e = data.entities, cr = data.compliance_report, viol = data.violations || [];
+    const c = data.conversation, s = data.summary, e = data.entities, cr = data.compliance_report, viol = data.violations || [], fraud = data.fraud_checks || [];
     const sentimentColor = { positive: 'text-green-600 bg-green-50', negative: 'text-red-600 bg-red-50', mixed: 'text-amber-600 bg-amber-50', neutral: 'text-slate-600 bg-slate-100' };
     const sevColor = { critical: 'text-red-700 bg-red-100', high: 'text-orange-700 bg-orange-100', medium: 'text-amber-700 bg-amber-100', low: 'text-slate-600 bg-slate-100' };
 
@@ -1298,6 +1302,21 @@ function renderAiModalBody(data) {
             <p class="text-[11px] text-slate-400 italic mt-0.5">"${v.evidence||''}"</p>
         </div>`).join('')}
     </div>`;
+    if (fraud.length) {
+        const channelLabel = { bank_account: 'เลขบัญชี', promptpay: 'พร้อมเพย์', line_id: 'LINE ID', wallet: 'e-Wallet', other: 'อื่นๆ', number_sequence: 'ชุดตัวเลข' };
+        html += `<div class="mb-5">
+            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">ตรวจสอบทุจริต — ช่องทางรับเงินที่พูดถึงในสาย</h4>
+            ${fraud.map(f => `<div class="mt-2 border-l-2 ${f.status==='clear'?'border-emerald-300':'border-rose-400'} pl-3">
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${f.status==='clear'?'text-emerald-700 bg-emerald-100':(sevColor[f.risk_level]||sevColor.low)}">${f.status==='clear'?'ตรงบัญชีบริษัท':f.risk_level}</span>
+                <span class="text-xs font-semibold ml-1">${channelLabel[f.channel_type]||f.channel_type||''}</span>
+                ${f.detected_value ? `<code class="text-[11px] bg-slate-100 px-1 py-0.5 rounded ml-1">${f.detected_value}</code>` : ''}
+                ${f.review_status==='confirmed' ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white ml-1">ยืนยันทุจริต</span>' : (f.review_status==='dismissed' ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 ml-1">ปัดตกแล้ว</span>' : '')}
+                <p class="text-xs text-slate-600 mt-0.5">${f.explanation||''}</p>
+                ${f.evidence ? `<p class="text-[11px] text-slate-400 italic mt-0.5">"${f.evidence}"</p>` : ''}
+            </div>`).join('')}
+            <a href="./ui/fraud_dashboard.html" target="_blank" class="inline-block mt-2 text-[11px] text-rose-600 hover:underline font-medium">เปิดหน้าตรวจสอบทุจริต →</a>
+        </div>`;
+    }
     if (data.transcript) {
         const roleByLabel = {};
         (data.speakers||[]).forEach(s => { roleByLabel[s.speaker_label] = s.role; });
@@ -1473,6 +1492,10 @@ document.addEventListener('keydown', (e) => {
 // ===== Start =====
 document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
+    // Deep-link from fraud_dashboard ("ไปที่สายนี้"): prefill the global search from ?search=.
+    // handleSearch() runs after every data load, so the filter applies once rows arrive.
+    const deepLinkSearch = new URLSearchParams(location.search).get('search');
+    if (deepLinkSearch) document.getElementById('globalSearch').value = deepLinkSearch;
     // Wait for GIS library to load
     const waitGIS = setInterval(() => {
         if (typeof google !== 'undefined' && google.accounts) {

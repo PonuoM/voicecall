@@ -69,7 +69,7 @@ class ConversationPipeline
      */
     private static function clearPriorOutput(PDO $pdo, int $conversationId): void
     {
-        foreach (['transcripts', 'summaries', 'keywords', 'action_items', 'conversation_tags', 'extracted_entities', 'compliance_reports', 'knowledge_chunks', 'speakers'] as $table) {
+        foreach (['transcripts', 'summaries', 'keywords', 'action_items', 'conversation_tags', 'extracted_entities', 'compliance_reports', 'knowledge_chunks', 'speakers', 'fraud_checks'] as $table) {
             $pdo->prepare("DELETE FROM {$table} WHERE conversation_id = ?")->execute([$conversationId]);
         }
     }

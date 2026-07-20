@@ -253,6 +253,7 @@ function get_conversation_detail(PDO $pdo, int $conversationId): void
     $actionItems = fetch_all($pdo, 'SELECT * FROM action_items WHERE conversation_id = ?', [$conversationId]);
     $complianceReport = fetch_one($pdo, 'SELECT * FROM compliance_reports WHERE conversation_id = ?', [$conversationId]);
     $violations = fetch_all($pdo, 'SELECT * FROM violations WHERE conversation_id = ? ORDER BY severity DESC', [$conversationId]);
+    $fraudChecks = fetch_all($pdo, "SELECT * FROM fraud_checks WHERE conversation_id = ? ORDER BY FIELD(risk_level,'critical','high','medium','low')", [$conversationId]);
 
     foreach (['key_topics', 'action_items', 'decisions_made', 'follow_up_tasks', 'important_keywords'] as $field) {
         if ($summary && isset($summary[$field])) {
@@ -280,6 +281,7 @@ function get_conversation_detail(PDO $pdo, int $conversationId): void
         'action_items' => $actionItems,
         'compliance_report' => $complianceReport,
         'violations' => $violations,
+        'fraud_checks' => $fraudChecks,
     ]);
 }
 

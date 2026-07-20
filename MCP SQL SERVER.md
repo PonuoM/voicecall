@@ -336,6 +336,7 @@ $conn->set_charset("utf8mb4");
 | `compliance_rules` | 3 | กฎ compliance ที่ตั้งไว้ |
 | `compliance_reports` | 7 | ผลตรวจ compliance ต่อสาย |
 | `violations` | 5 | รายการที่ผิดกฎ |
+| `fraud_checks` | 0 | ผลตรวจทุจริต: ช่องทางรับเงินที่พูดในสาย เทียบกับ `mini_erp.bank_account` (สร้าง 2026-07-20) |
 | `knowledge_chunks` | 10 | chunk สำหรับ RAG assistant |
 | `assistant_queries` | 0 | ประวัติคำถามที่ถาม AI assistant |
 | `gdrive_file_index` | 133,508 | index ไฟล์เสียงจาก Google Drive (ใช้แทนการ scan สดทุกครั้ง) |
@@ -353,3 +354,8 @@ $conn->set_charset("utf8mb4");
   plain int อ้างอิงไว้เฉยๆ ต้อง join ที่ application layer
 - การประมวลผล AI จริง (transcribe/summarize/ฯลฯ) มีต้นทุนจริงต่อสาย (OpenRouter) — อย่ารัน
   `process` ซ้ำโดยไม่ตั้งใจ ดู `conversations.status` ก่อนว่า `completed` แล้วหรือยัง
+- `fraud_checks`: LLM (UnifiedPipelineAgent `fraud_signals`) ทำหน้าที่แค่ **แกะ** ช่องทางรับเงิน
+  ที่พูดในสาย ส่วน **คำตัดสิน** (ตรง/ไม่ตรงบัญชีบริษัท) คำนวณแบบ deterministic ใน
+  `FraudCheckService` เทียบกับ `primacom_mini_erp.bank_account` — ทุก row เป็น "รายการให้คน
+  ยืนยัน" (`review_status`) ไม่ใช่ข้อกล่าวหาอัตโนมัติ ดูผ่าน `ui/fraud_dashboard.html` หรือ
+  API `GET /api/index.php/fraud`
