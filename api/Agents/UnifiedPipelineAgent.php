@@ -71,7 +71,7 @@ PROMPT;
         }
         
         // 2. Get Compliance Rules
-        $rulesStmt = $pdo->prepare('SELECT rule_name, description FROM compliance_rules WHERE company_id = ? AND active = 1');
+        $rulesStmt = $pdo->prepare('SELECT id, rule_name, description FROM compliance_rules WHERE company_id = ? AND active = 1');
         $rulesStmt->execute([$companyId]);
         $rules = $rulesStmt->fetchAll(PDO::FETCH_ASSOC);
         
@@ -120,56 +120,118 @@ PROMPT;
             }
         }
 
-        // 5. Save Entities
+        // 5. Save Entities — column names must match the real schema (conv_date/conv_time/
+        // appointment_info; tags live in the conversation_tags table, not a column here)
         $entities = $result['entities'] ?? [];
         $stmtEnt = $pdo->prepare('
-            INSERT INTO extracted_entities (conversation_id, customer_name, employee_name, company_name, phone, email, date, time, product, promotion, price, order_info, complaint, appointment, request, issue_category, tags, priority, sentiment_score, matched_product_id, linked_order_id)
+            INSERT INTO extracted_entities (conversation_id, customer_name, employee_name, company_name, phone, email, conv_date, conv_time, product, promotion, price, order_info, complaint, appointment_info, request, issue_category, priority, sentiment_score, raw_json, matched_product_id, linked_order_id)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ');
+        $priority = strtolower(trim((string) ($entities['priority'] ?? '')));
+        if (!in_array($priority, ['low', 'medium', 'high', 'urgent'], true)) {
+            $priority = null;
+        }
+        $sentimentScore = isset($entities['sentiment_score']) && is_numeric($entities['sentiment_score'])
+            ? max(-1.0, min(1.0, (float) $entities['sentiment_score'])) : null;
         $stmtEnt->execute([
             $conversationId,
-            $entities['customer_name'] ?? null,
-            $entities['employee_name'] ?? null,
-            $entities['company_name'] ?? null,
-            $entities['phone'] ?? null,
-            $entities['email'] ?? null,
-            $entities['date'] ?? null,
-            $entities['time'] ?? null,
-            $entities['product'] ?? null,
-            $entities['promotion'] ?? null,
-            $entities['price'] ?? null,
+            self::str($entities['customer_name'] ?? null, 255),
+            self::str($entities['employee_name'] ?? null, 255),
+            self::str($entities['company_name'] ?? null, 255),
+            self::str($entities['phone'] ?? null, 50),
+            self::str($entities['email'] ?? null, 255),
+            self::normalizeDate($entities['date'] ?? null),
+            self::normalizeTime($entities['time'] ?? null),
+            self::str($entities['product'] ?? null, 255),
+            self::str($entities['promotion'] ?? null, 255),
+            isset($entities['price']) && is_numeric($entities['price']) ? (float) $entities['price'] : null,
             json_encode($entities['order_info'] ?? [], JSON_UNESCAPED_UNICODE),
             $entities['complaint'] ?? null,
             json_encode($entities['appointment'] ?? [], JSON_UNESCAPED_UNICODE),
             $entities['request'] ?? null,
-            $entities['issue_category'] ?? null,
-            json_encode($entities['tags'] ?? [], JSON_UNESCAPED_UNICODE),
-            $entities['priority'] ?? null,
-            $entities['sentiment_score'] ?? null,
-            null, // Could do lookup here, skipping for brevity
-            null
+            self::str($entities['issue_category'] ?? null, 100),
+            $priority,
+            $sentimentScore,
+            json_encode($result, JSON_UNESCAPED_UNICODE),
+            null, // matched_product_id: ERP grounding not implemented in the unified agent yet
+            null  // linked_order_id
         ]);
 
-        // 6. Save Compliance
-        $compliance = $result['compliance'] ?? [];
-        $violations = $compliance['violations'] ?? [];
-        
-        $overallStatus = 'compliant';
-        if (count($violations) > 0) {
-            $hasHighOrCritical = false;
-            foreach ($violations as $v) {
-                if (in_array(strtolower($v['severity'] ?? ''), ['high', 'critical'], true)) {
-                    $hasHighOrCritical = true;
-                    break;
-                }
+        $insertTag = $pdo->prepare('INSERT INTO conversation_tags (conversation_id, tag) VALUES (?,?)');
+        foreach (($entities['tags'] ?? []) as $tag) {
+            if (is_string($tag) && trim($tag) !== '') {
+                $insertTag->execute([$conversationId, mb_substr(trim($tag), 0, 100)]);
             }
-            $overallStatus = $hasHighOrCritical ? 'critical_violation' : 'minor_violation';
         }
 
-        $stmtComp = $pdo->prepare('INSERT INTO compliance_reports (conversation_id, overall_status, violations_json) VALUES (?,?,?)');
-        $stmtComp->execute([$conversationId, $overallStatus, json_encode($violations, JSON_UNESCAPED_UNICODE)]);
+        // 6. Save Compliance — schema is overall_status enum('compliant','minor_issues',
+        // 'violations_found') + violation_count + model_used; individual violations go in the
+        // violations table (there is no violations_json column)
+        $compliance = $result['compliance'] ?? [];
+        $violations = $compliance['violations'] ?? [];
+        if (!is_array($violations)) {
+            $violations = [];
+        }
+
+        $hasHighOrCritical = false;
+        foreach ($violations as $v) {
+            if (in_array(strtolower($v['severity'] ?? ''), ['high', 'critical'], true)) {
+                $hasHighOrCritical = true;
+                break;
+            }
+        }
+        $overallStatus = count($violations) === 0 ? 'compliant' : ($hasHighOrCritical ? 'violations_found' : 'minor_issues');
+
+        $stmtComp = $pdo->prepare('INSERT INTO compliance_reports (conversation_id, overall_status, violation_count, model_used) VALUES (?,?,?,?)');
+        $stmtComp->execute([$conversationId, $overallStatus, count($violations), OPENROUTER_COMPLIANCE_MODEL]);
+        $reportId = (int) $pdo->lastInsertId();
+
+        $ruleIdByName = [];
+        foreach ($rules as $r) {
+            $ruleIdByName[$r['rule_name']] = (int) $r['id'];
+        }
+        $insertViolation = $pdo->prepare('
+            INSERT INTO violations (compliance_report_id, conversation_id, rule_id, rule_name, severity, evidence, explanation, suggested_improvement)
+            VALUES (?,?,?,?,?,?,?,?)
+        ');
+        foreach ($violations as $v) {
+            $severity = strtolower(trim((string) ($v['severity'] ?? '')));
+            if (!in_array($severity, ['low', 'medium', 'high', 'critical'], true)) {
+                $severity = 'low';
+            }
+            $ruleName = trim((string) ($v['rule_name'] ?? ''));
+            $insertViolation->execute([
+                $reportId,
+                $conversationId,
+                $ruleIdByName[$ruleName] ?? null,
+                mb_substr($ruleName, 0, 255),
+                $severity,
+                $v['evidence'] ?? null,
+                $v['explanation'] ?? null,
+                $v['suggested_improvement'] ?? null,
+            ]);
+        }
 
         return $result;
+    }
+
+    private static function str($value, int $maxLen): ?string
+    {
+        if ($value === null || is_array($value)) {
+            return null;
+        }
+        $s = trim((string) $value);
+        return $s === '' ? null : mb_substr($s, 0, $maxLen);
+    }
+
+    private static function normalizeDate(?string $value): ?string
+    {
+        return ($value && is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) ? $value : null;
+    }
+
+    private static function normalizeTime(?string $value): ?string
+    {
+        return ($value && is_string($value) && preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $value)) ? $value : null;
     }
 
     private static function normalizeSentiment(?string $sent): string
