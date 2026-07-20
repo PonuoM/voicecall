@@ -120,41 +120,43 @@
                 <i class="w-3.5 h-3.5" data-lucide="phone-outgoing"></i><span>—</span>
             </div>
             <!-- User Info + Logout -->
-            <div id="userInfoHeader" class="flex items-center gap-2">
-                <span id="headerUserName" class="text-xs font-medium text-slate-600 hidden"></span>
-                <a href="./ui/sync_dashboard.html" target="_blank"
-                    class="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    <i class="w-4 h-4" data-lucide="refresh-cw"></i> Sync ไฟล์เสียง
-                </a>
-                <a href="./ui/fraud_dashboard.html" target="_blank"
-                    class="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    <i class="w-4 h-4" data-lucide="shield-alert"></i> ตรวจทุจริต
-                </a>
-                <a id="btnCompanySettings" href="./ui/super_admin_companies.html" target="_blank"
-                    class="hidden items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    <i class="w-4 h-4" data-lucide="settings"></i> จัดการบริษัท
-                </a>
-                <a id="btnAIPrompts" href="./ui/super_admin_prompts.html" target="_blank"
-                    class="hidden items-center gap-2 bg-purple-500 hover:bg-purple-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    <i class="w-4 h-4" data-lucide="bot"></i> ตั้งค่า AI
-                </a>
-                <a id="btnCost" href="./ui/cost_dashboard.html" target="_blank"
-                    class="hidden items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    <i class="w-4 h-4" data-lucide="wallet"></i> Cost
-                </a>
-                <button id="logoutBtn" onclick="doLogout()"
-                    class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+            <div id="userInfoHeader" class="flex items-center gap-1">
+                <span id="headerUserName" class="text-xs font-medium text-slate-600 hidden mr-1"></span>
+                <button id="authBtn" onclick="handleAuth()"
+                    class="hidden flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                    <i class="w-4 h-4" data-lucide="cloud"></i>
+                    <span id="authLabel">เชื่อมต่อ Google Drive</span>
+                </button>
+                <button id="logoutBtn" onclick="doLogout()" title="ออกจากระบบ"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors">
                     <i class="w-4 h-4" data-lucide="log-out"></i> ออกจากระบบ
                 </button>
             </div>
-            <!-- Google Drive Auth -->
-            <button id="authBtn" onclick="handleAuth()"
-                class="hidden flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                <i class="w-4 h-4" data-lucide="cloud"></i>
-                <span id="authLabel">เชื่อมต่อ Google Drive</span>
-            </button>
         </div>
     </div>
+    <!-- Nav row: text buttons (moved out of the top row — it was overflowing) -->
+    <nav class="max-w-[1600px] mx-auto px-4 h-10 flex items-center gap-1 border-t border-slate-100 overflow-x-auto">
+        <a href="./ui/sync_dashboard.html" target="_blank"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 transition-colors whitespace-nowrap">
+            <i class="w-4 h-4 text-indigo-500" data-lucide="refresh-cw"></i> Sync ไฟล์เสียง
+        </a>
+        <a href="./ui/fraud_dashboard.html" target="_blank"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-rose-700 hover:bg-rose-50 transition-colors whitespace-nowrap">
+            <i class="w-4 h-4 text-rose-500" data-lucide="shield-alert"></i> ตรวจทุจริต
+        </a>
+        <a id="btnCompanySettings" href="./ui/super_admin_companies.html" target="_blank"
+            class="hidden items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-amber-700 hover:bg-amber-50 transition-colors whitespace-nowrap">
+            <i class="w-4 h-4 text-amber-500" data-lucide="settings"></i> จัดการบริษัท
+        </a>
+        <a id="btnAIPrompts" href="./ui/super_admin_prompts.html" target="_blank"
+            class="hidden items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap">
+            <i class="w-4 h-4 text-purple-500" data-lucide="bot"></i> ตั้งค่า AI
+        </a>
+        <a id="btnCost" href="./ui/cost_dashboard.html" target="_blank"
+            class="hidden items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors whitespace-nowrap">
+            <i class="w-4 h-4 text-emerald-600" data-lucide="wallet"></i> Cost
+        </a>
+    </nav>
 </header>
 
 <main class="max-w-[1600px] mx-auto p-3 lg:p-4 space-y-4">
