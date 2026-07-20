@@ -1060,9 +1060,10 @@ function formatDuration(r) {
 function downloadAudio(record) {
     const src = document.getElementById('dataSource').value;
     if (src === 'gdrive' && record.fileId) {
-        // Use proxy to convert GSM→PCM then download
+        // Use proxy to convert GSM→PCM then download. dl=1 makes the proxy return the whole
+        // file in one response — its default playback mode answers in seekable chunks.
         const a = document.createElement('a');
-        a.href = `./audio_proxy.php?id=${record.fileId}`;
+        a.href = `./audio_proxy.php?id=${record.fileId}&dl=1`;
         a.download = (record.file || record.id) + '.wav';
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } else if (record.file) {
