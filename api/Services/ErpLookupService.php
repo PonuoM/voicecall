@@ -144,10 +144,15 @@ class ErpLookupService
     }
 
     /**
-     * Batch version of findCustomerByPhone(). Same best-effort caveats: a phone can appear on
-     * several customer rows (duplicates/legacy), and the newest registration wins.
+     * Batch version of findCustomerByPhone(), returning EVERY customer record that carries the
+     * number, not just the best one. 26k phone numbers in this ERP sit on more than one customer
+     * row (~24% of the customer base), and telesales log calls against whichever record they had
+     * open — so anything searching call_history or orders by customer must look at all of them or
+     * it will report "no CRM entry" for calls that were logged against a duplicate.
+     *
+     * 'id'/'name' are the newest registration (what the ERP UI shows); 'all_ids' is every match.
      * @param string[] $phones raw phone strings
-     * @return array<string,array{id:int,name:string}> keyed by the ORIGINAL input string
+     * @return array<string,array{id:int,name:string,all_ids:int[]}> keyed by the ORIGINAL input
      */
     public static function findCustomersByPhones(PDO $erp, array $phones): array
     {
@@ -177,16 +182,27 @@ class ErpLookupService
         ");
         $stmt->execute(array_merge($formatList, $formatList, $formatList));
 
-        // Later rows overwrite earlier ones, so ordering ascending leaves the newest registration
-        // in place — matching findCustomerByPhone()'s ORDER BY date_registered DESC LIMIT 1.
+        // Ascending order means later rows overwrite id/name, leaving the newest registration in
+        // place — matching findCustomerByPhone()'s ORDER BY date_registered DESC LIMIT 1 — while
+        // all_ids accumulates every duplicate.
         $byStoredPhone = [];
         foreach ($stmt->fetchAll() as $row) {
-            $entry = ['id' => (int) $row['customer_id'], 'name' => trim($row['first_name'] . ' ' . $row['last_name'])];
+            $customerId = (int) $row['customer_id'];
             foreach ([$row['phone'], $row['recipient_phone'], $row['backup_phone']] as $p) {
-                if ($p !== null && $p !== '') {
-                    $byStoredPhone[$p] = $entry;
+                if ($p === null || $p === '') {
+                    continue;
                 }
+                $existing = $byStoredPhone[$p]['all_ids'] ?? [];
+                $existing[$customerId] = true;
+                $byStoredPhone[$p] = [
+                    'id' => $customerId,
+                    'name' => trim($row['first_name'] . ' ' . $row['last_name']),
+                    'all_ids' => $existing,
+                ];
             }
+        }
+        foreach ($byStoredPhone as $p => $entry) {
+            $byStoredPhone[$p]['all_ids'] = array_keys($entry['all_ids']);
         }
 
         $result = [];

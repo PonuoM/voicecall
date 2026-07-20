@@ -66,7 +66,11 @@ class ErpCallOutcomeService
             $cust = $customers[$r['receiver_phone'] ?? ''] ?? $customers[$r['caller_phone'] ?? ''] ?? null;
             $custByRecording[$r['gdrive_file_id']] = $cust;
             if ($cust) {
-                $customerIds[$cust['id']] = true;
+                // Search every duplicate record of this customer, not just the newest — the
+                // telesale may have logged the call against an older one (see findCustomersByPhones).
+                foreach ($cust['all_ids'] ?? [$cust['id']] as $cid) {
+                    $customerIds[$cid] = true;
+                }
             }
         }
 
@@ -119,13 +123,25 @@ class ErpCallOutcomeService
             }
             $callTs = strtotime($r['call_date'] . ' ' . ($r['call_time'] ?: '00:00:00'));
             $callEndTs = $callTs + (int) ($r['duration_seconds'] ?? 0);
+            $custIds = $cust['all_ids'] ?? [$cust['id']];
+
+            $custLogs = [];
+            $custOrders = [];
+            foreach ($custIds as $cid) {
+                if (!empty($logs[$cid])) {
+                    $custLogs = array_merge($custLogs, $logs[$cid]);
+                }
+                if (!empty($orders[$cid])) {
+                    $custOrders = array_merge($custOrders, $orders[$cid]);
+                }
+            }
 
             // Nearest CRM entry inside [start - slack, end + slack], measured from whichever end
             // of the call it is closest to — an entry made while the call is still in progress is
             // a perfect match (distance 0), not a distant one.
             $best = null;
             $bestDiff = null;
-            foreach ($logs[$cust['id']] ?? [] as $log) {
+            foreach ($custLogs as $log) {
                 $ts = strtotime($log['date']);
                 $diff = $ts < $callTs ? $callTs - $ts : ($ts > $callEndTs ? $ts - $callEndTs : 0);
                 if ($diff <= $slackSec && ($bestDiff === null || $diff < $bestDiff)) {
@@ -149,7 +165,7 @@ class ErpCallOutcomeService
             // Orders placed from the call date onwards, inside the window.
             $from = strtotime($r['call_date'] . ' 00:00:00');
             $to = $from + (self::ORDER_WINDOW_DAYS + 1) * 86400;
-            foreach ($orders[$cust['id']] ?? [] as $o) {
+            foreach ($custOrders as $o) {
                 $ots = strtotime($o['order_date']);
                 if ($ots < $from || $ots >= $to) {
                     continue;

@@ -363,7 +363,7 @@ async function loadAll() {
             ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">ขายได้</span>'
             : c.call_result
                 ? `<span class="text-[11px] text-slate-600">${esc(c.call_result)}</span>`
-                : '<span class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">ไม่มีบันทึกใน CRM</span>';
+                : '<span class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">สายนี้ไม่ถูกบันทึกใน CRM</span>';
 
         const orderCell = (c.orders || []).length
             ? c.orders.map(o => `<div class="whitespace-nowrap">
