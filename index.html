@@ -1304,11 +1304,12 @@ function renderAiModalBody(data) {
     </div>`;
     if (fraud.length) {
         const channelLabel = { bank_account: 'เลขบัญชี', promptpay: 'พร้อมเพย์', line_id: 'LINE ID', wallet: 'e-Wallet', other: 'อื่นๆ', number_sequence: 'ชุดตัวเลข' };
+        const checkLabel = { missing_order: 'ขายแล้วไม่พบออเดอร์', price_mismatch: 'ราคาไม่ตรงกับระบบ' };
         html += `<div class="mb-5">
-            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">ตรวจสอบทุจริต — ช่องทางรับเงินที่พูดถึงในสาย</h4>
+            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">ตรวจสอบทุจริต</h4>
             ${fraud.map(f => `<div class="mt-2 border-l-2 ${f.status==='clear'?'border-emerald-300':'border-rose-400'} pl-3">
-                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${f.status==='clear'?'text-emerald-700 bg-emerald-100':(sevColor[f.risk_level]||sevColor.low)}">${f.status==='clear'?'ตรงบัญชีบริษัท':f.risk_level}</span>
-                <span class="text-xs font-semibold ml-1">${channelLabel[f.channel_type]||f.channel_type||''}</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${f.status==='clear'?'text-emerald-700 bg-emerald-100':(sevColor[f.risk_level]||sevColor.low)}">${f.status==='clear'?'ผ่าน/ตรงระบบ':f.risk_level}</span>
+                <span class="text-xs font-semibold ml-1">${channelLabel[f.channel_type]||checkLabel[f.check_type]||f.channel_type||''}</span>
                 ${f.detected_value ? `<code class="text-[11px] bg-slate-100 px-1 py-0.5 rounded ml-1">${f.detected_value}</code>` : ''}
                 ${f.review_status==='confirmed' ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white ml-1">ยืนยันทุจริต</span>' : (f.review_status==='dismissed' ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 ml-1">ปัดตกแล้ว</span>' : '')}
                 <p class="text-xs text-slate-600 mt-0.5">${f.explanation||''}</p>

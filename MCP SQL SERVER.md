@@ -359,3 +359,9 @@ $conn->set_charset("utf8mb4");
   `FraudCheckService` เทียบกับ `primacom_mini_erp.bank_account` — ทุก row เป็น "รายการให้คน
   ยืนยัน" (`review_status`) ไม่ใช่ข้อกล่าวหาอัตโนมัติ ดูผ่าน `ui/fraud_dashboard.html` หรือ
   API `GET /api/index.php/fraud`
+- `fraud_checks.check_type` มี 3 ประเภท: `payment_channel` (ตรวจตอน pipeline รัน),
+  `missing_order` + `price_mismatch` (ตรวจย้อนหลังโดย `api/cron/fraud_order_check.php` —
+  ต้องรอ GRACE_DAYS=2 วันหลังโทร เพราะ order อาจถูกคีย์ทีหลัง; เทียบกับ
+  `primacom_mini_erp.orders` ผ่าน `OrderCrossCheckService`) —
+  `extracted_entities.sale_outcome` (closed_won/follow_up/declined/not_sales_call) เป็นตัวบอก
+  ว่าสายไหน "ปิดการขายได้" ควรมี order ตามมา

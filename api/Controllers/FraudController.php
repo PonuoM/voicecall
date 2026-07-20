@@ -55,6 +55,10 @@ function list_fraud_checks(PDO $pdo, int $companyId): void
         $where[] = 'f.channel_type = ?';
         $params[] = $_GET['channel_type'];
     }
+    if (!empty($_GET['check_type'])) {
+        $where[] = 'f.check_type = ?';
+        $params[] = $_GET['check_type'];
+    }
     if (!empty($_GET['employee_id'])) {
         $where[] = 'c.erp_employee_id = ?';
         $params[] = (int) $_GET['employee_id'];

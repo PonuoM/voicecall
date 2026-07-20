@@ -107,9 +107,15 @@
                     <option value="medium">Medium</option>
                     <option value="low">Low</option>
                 </select>
+                <select id="filterCheckType" onchange="loadChecks()" class="form-select rounded-lg border-slate-200 text-xs py-1">
+                    <option value="">ทุกประเภทการตรวจ</option>
+                    <option value="payment_channel">ช่องทางรับเงิน</option>
+                    <option value="missing_order">ขายแล้วไม่พบออเดอร์</option>
+                    <option value="price_mismatch">ราคาไม่ตรงกับระบบ</option>
+                </select>
                 <select id="filterStatus" onchange="loadChecks()" class="form-select rounded-lg border-slate-200 text-xs py-1">
                     <option value="flagged" selected>เฉพาะที่ถูก flag</option>
-                    <option value="clear">เฉพาะที่ตรงบัญชีบริษัท</option>
+                    <option value="clear">เฉพาะที่ผ่าน/ตรงระบบ</option>
                     <option value="all">ทั้งหมด</option>
                 </select>
             </div>
@@ -162,6 +168,12 @@ const CHANNEL_LABEL = {
     other: 'อื่นๆ',
     number_sequence: 'ชุดตัวเลข (ตรวจโดยระบบ)',
 };
+const CHECK_LABEL = {
+    payment_channel: 'ช่องทางรับเงิน',
+    missing_order: 'ขายแล้วไม่พบออเดอร์',
+    price_mismatch: 'ราคาไม่ตรงกับระบบ',
+};
+const SOURCE_TAG = { regex: 'regex', erp: 'ตรวจกับ ERP' };
 const SPOKEN_LABEL = { employee: '🧑‍💼 พนักงานเป็นผู้แจ้ง', customer: '🙋 ลูกค้าเป็นผู้แจ้ง', unknown: '❓ ระบุผู้พูดไม่ได้' };
 
 function esc(s) {
@@ -211,8 +223,10 @@ async function loadChecks() {
     const review = document.getElementById('filterReview').value;
     const risk = document.getElementById('filterRisk').value;
     const status = document.getElementById('filterStatus').value;
+    const checkType = document.getElementById('filterCheckType').value;
     if (review) params.set('review_status', review);
     if (risk) params.set('risk_level', risk);
+    if (checkType) params.set('check_type', checkType);
     params.set('status', status || 'all');
 
     const res = await fetch(`${API_BASE}/fraud?${params}`, { headers: authHeaders() });
@@ -236,7 +250,7 @@ function renderCheck(item) {
     div.className = 'p-4 fade-in hover:bg-slate-50/50';
     const isClear = item.status === 'clear';
     const badge = isClear
-        ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">ตรงบัญชีบริษัท</span>'
+        ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">ผ่าน/ตรงระบบ</span>'
         : `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${RISK_BADGE[item.risk_level] || RISK_BADGE.low}">${item.risk_level}</span>`;
     const reviewBadge = item.review_status === 'confirmed'
         ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white">ยืนยันทุจริต</span>'
@@ -249,11 +263,11 @@ function renderCheck(item) {
     div.innerHTML = `
         <div class="flex flex-wrap items-center gap-2 mb-1.5">
             ${badge} ${reviewBadge}
-            <span class="text-xs font-bold text-slate-700">${CHANNEL_LABEL[item.channel_type] || esc(item.channel_type)}</span>
+            <span class="text-xs font-bold text-slate-700">${CHANNEL_LABEL[item.channel_type] || CHECK_LABEL[item.check_type] || esc(item.check_type)}</span>
             ${item.detected_value ? `<code class="text-xs bg-slate-100 px-1.5 py-0.5 rounded font-mono">${esc(item.detected_value)}</code>` : ''}
             ${item.bank_name ? `<span class="text-xs text-slate-500">(${esc(item.bank_name)})</span>` : ''}
             <span class="text-xs text-slate-500">${SPOKEN_LABEL[item.spoken_by] || ''}</span>
-            ${item.source === 'regex' ? '<span class="text-[10px] text-slate-400 border border-slate-200 rounded px-1">regex</span>' : ''}
+            ${SOURCE_TAG[item.source] ? `<span class="text-[10px] text-slate-400 border border-slate-200 rounded px-1">${SOURCE_TAG[item.source]}</span>` : ''}
         </div>
         <p class="text-sm text-slate-800 mb-1">${esc(item.explanation || '')}</p>
         ${item.purpose ? `<p class="text-xs text-slate-500 mb-1">บริบท: ${esc(item.purpose)}</p>` : ''}

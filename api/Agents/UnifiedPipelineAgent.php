@@ -43,7 +43,8 @@ Read the transcript and context, and produce a structured analysis. Output stric
     "issue_category": "string or null",
     "tags": ["short-tag1", "short-tag2"],
     "priority": "low|medium|high|urgent",
-    "sentiment_score": "number from -1.0 to 1.0"
+    "sentiment_score": "number from -1.0 to 1.0",
+    "sale_outcome": "closed_won|follow_up|declined|not_sales_call"
   },
   "compliance": {
     "violations": [
@@ -70,6 +71,11 @@ Read the transcript and context, and produce a structured analysis. Output stric
     ]
   }
 }
+
+For "entities.sale_outcome": "closed_won" ONLY when the customer clearly agreed in this call to
+buy / confirm an order (explicit agreement, not mere interest). "follow_up" when undecided or a
+callback was arranged, "declined" when the customer refused, "not_sales_call" for anything that
+was not a sales conversation.
 
 For "fraud_signals.payment_channels": capture EVERY mention of a destination for transferring
 money or sending payment slips — bank account numbers, PromptPay numbers, LINE IDs given for
@@ -147,12 +153,16 @@ PROMPT;
         // appointment_info; tags live in the conversation_tags table, not a column here)
         $entities = $result['entities'] ?? [];
         $stmtEnt = $pdo->prepare('
-            INSERT INTO extracted_entities (conversation_id, customer_name, employee_name, company_name, phone, email, conv_date, conv_time, product, promotion, price, order_info, complaint, appointment_info, request, issue_category, priority, sentiment_score, raw_json, matched_product_id, linked_order_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO extracted_entities (conversation_id, customer_name, employee_name, company_name, phone, email, conv_date, conv_time, product, promotion, price, order_info, complaint, appointment_info, request, issue_category, priority, sale_outcome, sentiment_score, raw_json, matched_product_id, linked_order_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ');
         $priority = strtolower(trim((string) ($entities['priority'] ?? '')));
         if (!in_array($priority, ['low', 'medium', 'high', 'urgent'], true)) {
             $priority = null;
+        }
+        $saleOutcome = strtolower(trim((string) ($entities['sale_outcome'] ?? '')));
+        if (!in_array($saleOutcome, ['closed_won', 'follow_up', 'declined', 'not_sales_call'], true)) {
+            $saleOutcome = null;
         }
         $sentimentScore = isset($entities['sentiment_score']) && is_numeric($entities['sentiment_score'])
             ? max(-1.0, min(1.0, (float) $entities['sentiment_score'])) : null;
@@ -174,6 +184,7 @@ PROMPT;
             $entities['request'] ?? null,
             self::str($entities['issue_category'] ?? null, 100),
             $priority,
+            $saleOutcome,
             $sentimentScore,
             json_encode($result, JSON_UNESCAPED_UNICODE),
             null, // matched_product_id: ERP grounding not implemented in the unified agent yet
