@@ -144,6 +144,56 @@ class ErpLookupService
     }
 
     /**
+     * Batch version of findEmployeeByPhone() — one query for a whole list of numbers instead of
+     * one round-trip each, for report screens that resolve a ranking of callers at once.
+     * @param string[] $phones raw phone strings (any format candidateFormats() understands)
+     * @return array<string,array{id:int,name:string}> keyed by the ORIGINAL input string, so
+     *         callers can look results up without re-normalizing; unmatched phones are absent.
+     */
+    public static function findEmployeesByPhones(PDO $erp, array $phones): array
+    {
+        $formatsByPhone = [];
+        $allFormats = [];
+        foreach ($phones as $phone) {
+            $formats = self::candidateFormats($phone);
+            if (empty($formats)) {
+                continue;
+            }
+            $formatsByPhone[$phone] = $formats;
+            foreach ($formats as $f) {
+                $allFormats[$f] = true;
+            }
+        }
+        if (empty($allFormats)) {
+            return [];
+        }
+
+        $formatList = array_keys($allFormats);
+        $placeholders = implode(',', array_fill(0, count($formatList), '?'));
+        $stmt = $erp->prepare("SELECT id, first_name, last_name, phone FROM users WHERE phone IN ({$placeholders})");
+        $stmt->execute($formatList);
+
+        $byStoredPhone = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $byStoredPhone[$row['phone']] = [
+                'id' => (int) $row['id'],
+                'name' => trim($row['first_name'] . ' ' . $row['last_name']),
+            ];
+        }
+
+        $result = [];
+        foreach ($formatsByPhone as $phone => $formats) {
+            foreach ($formats as $f) {
+                if (isset($byStoredPhone[$f])) {
+                    $result[$phone] = $byStoredPhone[$f];
+                    break;
+                }
+            }
+        }
+        return $result;
+    }
+
+    /**
      * Recording phone numbers come in as E.164 ("+66945547266"). primacom_mini_erp itself is
      * NOT internally consistent about which format it stores: `customers.phone` is reliably Thai
      * local format ("0945547266"), but `users.phone` is a real mix - confirmed directly against

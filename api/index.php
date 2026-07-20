@@ -24,6 +24,11 @@ try {
             handle_cost($pdo, $currentUser, $id, $action);
             break;
 
+        case 'long-calls':
+            require_once __DIR__ . '/Controllers/LongCallController.php';
+            handle_long_calls($pdo, erp(), $currentUser, $id);
+            break;
+
         case 'assistant':
             require_once __DIR__ . '/Controllers/AssistantController.php';
             handle_assistant($pdo, $currentUser, $id, $action);

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>สายยาวผิดปกติ - Long Calls</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <div class="max-w-[1500px] mx-auto px-4 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-amber-500 rounded-xl flex items-center justify-center">
+                <i class="w-5 h-5 text-white" data-lucide="timer"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold leading-tight">สายยาวผิดปกติ — ตรวจการปั่น Talk Time</h1>
+                <p class="text-[10px] text-slate-500 uppercase tracking-wider" id="subTitle">Long Call Report</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="../index.html" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="arrow-left"></i> กลับหน้าหลัก
+            </a>
+            <button onclick="loadAll()" class="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="refresh-cw"></i> รีเฟรช
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-[1500px] mx-auto p-4 space-y-4">
+
+    <div id="errorBox" class="hidden bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm"></div>
+
+    <!-- Filters -->
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+        <div class="flex flex-wrap items-end gap-3">
+            <div class="w-56">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">บริษัท</label>
+                <select id="companyFilter" onchange="loadAll()" class="form-select w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500">
+                    <option value="">กำลังโหลด...</option>
+                </select>
+            </div>
+            <div class="w-44">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ยาวตั้งแต่ (นาที)</label>
+                <input id="minMinutes" type="number" min="1" max="600" value="30" onchange="loadAll()"
+                    class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500" />
+            </div>
+            <div class="w-40">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">จากวันที่</label>
+                <input id="dateFrom" type="date" onchange="loadAll()" class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500" />
+            </div>
+            <div class="w-40">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ถึงวันที่</label>
+                <input id="dateTo" type="date" onchange="loadAll()" class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500" />
+            </div>
+            <button onclick="resetFilters()" class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm flex items-center gap-2">
+                <i class="w-4 h-4" data-lucide="rotate-ccw"></i> รีเซ็ต
+            </button>
+        </div>
+    </section>
+
+    <!-- Buckets: click to set threshold -->
+    <section>
+        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">📊 จำนวนสายตามความยาว (กดเพื่อกรอง)</h2>
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-3" id="bucketCards">
+            <div class="bg-white rounded-xl border border-slate-200 p-3">
+                <p class="text-[11px] font-semibold text-slate-500 uppercase">ทั้งหมด</p>
+                <p class="text-xl font-bold text-slate-800 mt-1" id="bTotal">—</p>
+            </div>
+            <button onclick="setMin(10)" class="bg-white rounded-xl border border-slate-200 hover:border-amber-400 p-3 text-left transition-colors">
+                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 10 นาที</p>
+                <p class="text-xl font-bold text-slate-800 mt-1" id="b10">—</p>
+            </button>
+            <button onclick="setMin(20)" class="bg-white rounded-xl border border-slate-200 hover:border-amber-400 p-3 text-left transition-colors">
+                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 20 นาที</p>
+                <p class="text-xl font-bold text-slate-800 mt-1" id="b20">—</p>
+            </button>
+            <button onclick="setMin(30)" class="bg-white rounded-xl border border-amber-200 bg-amber-50/40 hover:border-amber-400 p-3 text-left transition-colors">
+                <p class="text-[11px] font-semibold text-amber-700 uppercase">≥ 30 นาที</p>
+                <p class="text-xl font-bold text-amber-700 mt-1" id="b30">—</p>
+            </button>
+            <button onclick="setMin(45)" class="bg-white rounded-xl border border-slate-200 hover:border-amber-400 p-3 text-left transition-colors">
+                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 45 นาที</p>
+                <p class="text-xl font-bold text-orange-600 mt-1" id="b45">—</p>
+            </button>
+            <button onclick="setMin(60)" class="bg-white rounded-xl border border-slate-200 hover:border-rose-400 p-3 text-left transition-colors">
+                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 1 ชั่วโมง</p>
+                <p class="text-xl font-bold text-rose-600 mt-1" id="b60">—</p>
+            </button>
+        </div>
+    </section>
+
+    <div class="grid lg:grid-cols-2 gap-4 items-start">
+        <!-- Ranking by caller -->
+        <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+                <i class="w-4 h-4 text-slate-500" data-lucide="user-round"></i>
+                <h2 class="text-sm font-bold flex-1">อันดับผู้โทร (สายยาว)</h2>
+                <span class="text-[10px] text-slate-400">คุยกี่เบอร์ = ยิ่งน้อยยิ่งน่าสงสัย</span>
+            </div>
+            <div class="max-h-[460px] overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
+                        <tr>
+                            <th class="px-3 py-2">พนักงาน / เบอร์</th>
+                            <th class="px-2 py-2 text-center">สาย</th>
+                            <th class="px-2 py-2 text-center">คุยกี่เบอร์</th>
+                            <th class="px-2 py-2 text-right">ชม.รวม</th>
+                            <th class="px-2 py-2 text-right">ยาวสุด</th>
+                        </tr>
+                    </thead>
+                    <tbody id="callerBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Repeated pairs -->
+        <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 bg-rose-50/50 flex items-center gap-2">
+                <i class="w-4 h-4 text-rose-500" data-lucide="repeat"></i>
+                <h2 class="text-sm font-bold flex-1">คู่สายที่คุยยาวซ้ำๆ กัน</h2>
+                <span class="text-[10px] text-rose-400">สัญญาณปั่น talk time</span>
+            </div>
+            <div class="max-h-[460px] overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
+                        <tr>
+                            <th class="px-3 py-2">ผู้โทร → ผู้รับ</th>
+                            <th class="px-2 py-2 text-center">ครั้ง</th>
+                            <th class="px-2 py-2 text-right">ชม.รวม</th>
+                            <th class="px-2 py-2 text-right">ยาวสุด</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pairBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- Call list -->
+    <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+            <i class="w-4 h-4 text-slate-500" data-lucide="list"></i>
+            <h2 class="text-sm font-bold flex-1">รายการสาย <span id="listCount" class="text-slate-400 font-normal"></span></h2>
+        </div>
+        <div class="overflow-x-auto max-h-[70vh] overflow-y-auto">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
+                    <tr>
+                        <th class="px-3 py-2">วันที่ &amp; เวลา</th>
+                        <th class="px-3 py-2">Call ID</th>
+                        <th class="px-3 py-2">พนักงาน / ผู้โทร</th>
+                        <th class="px-3 py-2">ผู้รับ</th>
+                        <th class="px-3 py-2 text-center">ทิศทาง</th>
+                        <th class="px-3 py-2 text-right">ระยะเวลา</th>
+                        <th class="px-3 py-2 text-center">AI</th>
+                        <th class="px-3 py-2 text-center">ฟัง</th>
+                    </tr>
+                </thead>
+                <tbody id="callBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<script>
+const API_BASE = '../api/index.php';
+let aiToken = null;
+let currentUser = null;
+
+(function initSession() {
+    const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
+    if (!raw) {
+        alert('กรุณาเข้าสู่ระบบผ่านหน้าหลักก่อนใช้งานหน้านี้');
+        window.location.href = '../index.html';
+        return;
+    }
+    try {
+        currentUser = JSON.parse(raw);
+        aiToken = currentUser.api_token || null;
+    } catch (e) { console.error(e); }
+    if (!aiToken) {
+        alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
+        window.location.href = '../index.html';
+    }
+})();
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtPhone = p => { const d = String(p || '').replace(/\D/g, ''); const l = d.startsWith('66') ? '0' + d.slice(2) : d; return l.length === 10 ? `${l.slice(0,3)}-${l.slice(3,6)}-${l.slice(6)}` : (p || '-'); };
+const fmtDur = sec => { const s = Math.round(sec || 0); const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), r = s%60; return h ? `${h}:${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}` : `${m}:${String(r).padStart(2,'0')}`; };
+
+async function loadCompanies() {
+    const select = document.getElementById('companyFilter');
+    try {
+        const res = await fetch('../api/sync/companies_admin.php');
+        const data = await res.json();
+        let companies = (data.success && data.data) ? data.data : [];
+        // Non-super-admins only ever see their own company.
+        if (currentUser && !currentUser.is_super_admin) {
+            companies = companies.filter(c => Number(c.id) === Number(currentUser.company_id));
+        }
+        select.innerHTML = companies.map(c => `<option value="${c.id}">${esc(c.name)} (ID ${c.id})</option>`).join('')
+            || `<option value="${currentUser?.company_id || ''}">Company ${currentUser?.company_id || '?'}</option>`;
+        if (currentUser?.company_id && companies.some(c => Number(c.id) === Number(currentUser.company_id))) {
+            select.value = currentUser.company_id;
+        }
+    } catch (e) {
+        select.innerHTML = `<option value="${currentUser?.company_id || ''}">Company ${currentUser?.company_id || '?'}</option>`;
+    }
+}
+
+function setMin(minutes) {
+    document.getElementById('minMinutes').value = minutes;
+    loadAll();
+}
+
+function resetFilters() {
+    document.getElementById('minMinutes').value = 30;
+    document.getElementById('dateFrom').value = '';
+    document.getElementById('dateTo').value = '';
+    loadAll();
+}
+
+async function loadAll() {
+    const companyId = document.getElementById('companyFilter').value;
+    if (!companyId) return;
+
+    const params = new URLSearchParams({
+        company_id: companyId,
+        min_minutes: document.getElementById('minMinutes').value || 30,
+    });
+    const from = document.getElementById('dateFrom').value;
+    const to = document.getElementById('dateTo').value;
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+
+    const errBox = document.getElementById('errorBox');
+    document.getElementById('callBody').innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">กำลังโหลด...</td></tr>';
+
+    const res = await fetch(`${API_BASE}/long-calls?${params}`, { headers: { 'Authorization': 'Bearer ' + aiToken } });
+    const data = await res.json();
+    if (!data.ok) {
+        errBox.textContent = data.message || data.error || 'โหลดข้อมูลไม่สำเร็จ';
+        errBox.classList.remove('hidden');
+        return;
+    }
+    errBox.classList.add('hidden');
+
+    const b = data.buckets || {};
+    document.getElementById('bTotal').textContent = Number(b.total || 0).toLocaleString();
+    document.getElementById('b10').textContent = Number(b.m10 || 0).toLocaleString();
+    document.getElementById('b20').textContent = Number(b.m20 || 0).toLocaleString();
+    document.getElementById('b30').textContent = Number(b.m30 || 0).toLocaleString();
+    document.getElementById('b45').textContent = Number(b.m45 || 0).toLocaleString();
+    document.getElementById('b60').textContent = Number(b.m60 || 0).toLocaleString();
+    document.getElementById('subTitle').textContent = `กรองที่ ≥ ${data.min_minutes} นาที`;
+
+    // Caller ranking
+    const callerBody = document.getElementById('callerBody');
+    callerBody.innerHTML = '';
+    (data.by_caller || []).forEach(c => {
+        // Many long calls concentrated on very few receivers is the padding signature.
+        const concentrated = Number(c.long_calls) >= 3 && Number(c.distinct_receivers) <= Math.ceil(Number(c.long_calls) / 2);
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50';
+        tr.innerHTML = `
+            <td class="px-3 py-2">
+                <div class="font-medium">${esc(c.employee_name || 'ไม่พบในระบบ')}</div>
+                <div class="text-[11px] text-slate-400 font-mono">${fmtPhone(c.caller_phone)}</div>
+            </td>
+            <td class="px-2 py-2 text-center font-semibold">${c.long_calls}</td>
+            <td class="px-2 py-2 text-center ${concentrated ? 'text-rose-600 font-bold' : 'text-slate-500'}">${c.distinct_receivers}${concentrated ? ' ⚠️' : ''}</td>
+            <td class="px-2 py-2 text-right">${c.total_hours}</td>
+            <td class="px-2 py-2 text-right">${c.max_minutes} น.</td>`;
+        callerBody.appendChild(tr);
+    });
+    if (!(data.by_caller || []).length) callerBody.innerHTML = '<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">ไม่พบข้อมูล</td></tr>';
+
+    // Repeated pairs
+    const pairBody = document.getElementById('pairBody');
+    pairBody.innerHTML = '';
+    (data.repeated_pairs || []).forEach(p => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50';
+        tr.innerHTML = `
+            <td class="px-3 py-2">
+                <div class="font-medium">${esc(p.employee_name || fmtPhone(p.caller_phone))}</div>
+                <div class="text-[11px] text-slate-400 font-mono">${fmtPhone(p.caller_phone)} → ${fmtPhone(p.receiver_phone)}</div>
+            </td>
+            <td class="px-2 py-2 text-center font-bold ${Number(p.times) >= 3 ? 'text-rose-600' : 'text-amber-600'}">${p.times}</td>
+            <td class="px-2 py-2 text-right">${p.total_hours}</td>
+            <td class="px-2 py-2 text-right">${p.max_minutes} น.</td>`;
+        pairBody.appendChild(tr);
+    });
+    if (!(data.repeated_pairs || []).length) pairBody.innerHTML = '<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">ไม่พบคู่สายที่คุยยาวซ้ำ 🎉</td></tr>';
+
+    // Call list
+    const callBody = document.getElementById('callBody');
+    callBody.innerHTML = '';
+    (data.calls || []).forEach(c => {
+        const analyzed = c.conversation_status === 'completed';
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50 fade-in';
+        tr.innerHTML = `
+            <td class="px-3 py-2 whitespace-nowrap">${esc(c.call_date || '')} <span class="text-slate-400">${esc((c.call_time || '').slice(0,5))}</span></td>
+            <td class="px-3 py-2 font-mono text-[11px]">${esc(c.call_code || '-')}</td>
+            <td class="px-3 py-2">
+                <div class="font-medium">${esc(c.employee_name || '—')}</div>
+                <div class="text-[11px] text-slate-400 font-mono">${fmtPhone(c.caller_phone)}</div>
+            </td>
+            <td class="px-3 py-2 font-mono text-[11px]">${fmtPhone(c.receiver_phone)}</td>
+            <td class="px-3 py-2 text-center">
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${c.direction === 'IN' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">${esc(c.direction || '-')}</span>
+            </td>
+            <td class="px-3 py-2 text-right font-semibold ${c.duration_seconds >= 3600 ? 'text-rose-600' : c.duration_seconds >= 2700 ? 'text-orange-600' : 'text-slate-700'}">${fmtDur(c.duration_seconds)}</td>
+            <td class="px-3 py-2 text-center">
+                ${analyzed
+                    ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700">วิเคราะห์แล้ว</span>'
+                    : '<span class="text-[10px] text-slate-300">—</span>'}
+            </td>
+            <td class="px-3 py-2 text-center">
+                <a href="../audio_proxy.php?id=${encodeURIComponent(c.gdrive_file_id)}" target="_blank"
+                   class="inline-flex items-center gap-1 text-sky-600 hover:text-sky-800" title="เปิดไฟล์เสียง">
+                    <i class="w-4 h-4" data-lucide="play-circle"></i>
+                </a>
+            </td>`;
+        callBody.appendChild(tr);
+    });
+    if (!(data.calls || []).length) callBody.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">ไม่พบสายที่ยาวถึงเกณฑ์นี้</td></tr>';
+    document.getElementById('listCount').textContent = `(${(data.calls || []).length} รายการ)`;
+
+    lucide.createIcons();
+}
+
+(async function init() {
+    await loadCompanies();
+    await loadAll();
+    lucide.createIcons();
+})().catch(e => {
+    const errBox = document.getElementById('errorBox');
+    errBox.textContent = 'เกิดข้อผิดพลาด: ' + e.message;
+    errBox.classList.remove('hidden');
+});
+</script>
+</body>
+</html>
