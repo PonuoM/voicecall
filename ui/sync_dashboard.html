@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OneCall to Google Drive Sync Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap; }
@@ -46,9 +47,44 @@
         .status-failed { color: #dc3545; font-weight: bold; }
         .status-skipped { color: #856404; font-weight: bold; }
         #logTableBody { max-height: 400px; overflow-y: auto; }
+
+        /* Top navbar — matches the main dashboard header (index.html) */
+        .topnav { background: #fff; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 100; margin: -20px -20px 20px; }
+        .topnav-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; height: 48px; display: flex; align-items: center; justify-content: space-between; }
+        .topnav-brand { display: flex; align-items: center; gap: 10px; }
+        .topnav-logo { width: 32px; height: 32px; background: #0284c7; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; }
+        .topnav-title { font-size: 15px; font-weight: 700; color: #1e293b; line-height: 1.2; letter-spacing: -0.01em; }
+        .topnav-sub { font-size: 9px; color: #64748b; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
+        .topnav-links { display: flex; gap: 8px; }
+        .topnav-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 500; text-decoration: none; color: #475569; background: #f1f5f9; transition: 0.2s; }
+        .topnav-link:hover { background: #e2e8f0; }
+        .topnav-link.active { background: #6366f1; color: #fff; pointer-events: none; }
     </style>
 </head>
 <body>
+    <nav class="topnav">
+        <div class="topnav-inner">
+            <div class="topnav-brand">
+                <div class="topnav-logo">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+                </div>
+                <div>
+                    <div class="topnav-title">Call Recordings</div>
+                    <div class="topnav-sub">Google Drive Dashboard</div>
+                </div>
+            </div>
+            <div class="topnav-links">
+                <a href="../index.html" class="topnav-link">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    หน้าหลัก Dashboard
+                </a>
+                <a href="#" class="topnav-link active">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                    Sync ไฟล์เสียง
+                </a>
+            </div>
+        </div>
+    </nav>
     <div class="container">
         <!-- Calendar Heatmap Panel -->
         <div class="calendar-panel">

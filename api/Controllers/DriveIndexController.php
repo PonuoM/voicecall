@@ -25,7 +25,7 @@ function handle_drive_index(PDO $pdo, array $currentUser, ?string $id): void
 
     $rows = fetch_all($pdo, '
         SELECT gdrive_file_id, filename, call_code, call_date, call_time,
-               caller_phone, receiver_phone, direction, size_bytes
+               caller_phone, receiver_phone, direction, size_bytes, duration_seconds
         FROM gdrive_file_index
         WHERE company_id = ?
         ORDER BY call_date DESC, call_time DESC
@@ -44,6 +44,7 @@ function handle_drive_index(PDO $pdo, array $currentUser, ?string $id): void
             'fileId' => $r['gdrive_file_id'],
             'filename' => $r['filename'],
             'size' => (int) $r['size_bytes'],
+            'duration' => $r['duration_seconds'] === null ? null : (int) $r['duration_seconds'],
         ];
     }, $rows);
 

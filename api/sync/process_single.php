@@ -4,6 +4,7 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../Services/OneCallClient.php';
 require_once __DIR__ . '/../Services/GoogleDriveUploader.php';
+require_once __DIR__ . '/../Services/WavInfo.php';
 
 $envPath = __DIR__ . '/../../.env';
 if (!file_exists($envPath)) {
@@ -104,17 +105,18 @@ try {
     $audioUrl = rtrim($onecallConfig['base_url'], '/') . "/orktrack/rest/mediastream/{$callId}";
     $oneCall->downloadAudio($audioUrl, $tempFile);
     $sizeBytes = filesize($tempFile);
-    
+    $durationSeconds = WavInfo::durationSeconds($tempFile); // real duration from the WAV header (OneCall serves PCM, not GSM)
+
     $driveFileId = $uploader->uploadFile($tempFile, $fileName);
     unlink($tempFile);
     
     // 5. Update Local DB (voicecall_ai.gdrive_file_index)
     $insertStmt = $pdoLocal->prepare("
         INSERT INTO gdrive_file_index 
-        (company_folder_id, company_id, gdrive_file_id, filename, call_code, call_date, call_time, caller_phone, receiver_phone, direction, size_bytes) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE 
-        filename=VALUES(filename), call_code=VALUES(call_code), size_bytes=VALUES(size_bytes), last_seen_at=CURRENT_TIMESTAMP
+        (company_folder_id, company_id, gdrive_file_id, filename, call_code, call_date, call_time, caller_phone, receiver_phone, direction, size_bytes, duration_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+        filename=VALUES(filename), call_code=VALUES(call_code), size_bytes=VALUES(size_bytes), duration_seconds=VALUES(duration_seconds), last_seen_at=CURRENT_TIMESTAMP
     ");
     $insertStmt->execute([
         $driveConfig['folder_id'],
@@ -127,7 +129,8 @@ try {
         '+' . $cleanCaller,
         '+' . $cleanReceiver,
         $directionUpper,
-        $sizeBytes
+        $sizeBytes,
+        $durationSeconds
     ]);
     
     echo json_encode(['success' => true, 'driveFileId' => $driveFileId]);

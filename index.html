@@ -28,7 +28,17 @@
         .login-card { animation: fadeIn 0.5s ease-out; }
         .shake { animation: shake 0.5s; }
         @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
+        .has-session #loginScreen { display: none; }
     </style>
+    <script>
+        // Pre-paint session check: hide the login overlay before first render when a session
+        // already exists, so navigating back from another tab/page doesn't flash the login screen.
+        try {
+            if (sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared')) {
+                document.documentElement.classList.add('has-session');
+            }
+        } catch (e) {}
+    </script>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
 
@@ -77,14 +87,14 @@
 
 <!-- Header -->
 <header class="bg-white border-b border-slate-200 sticky top-0 z-50">
-    <div class="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
-        <div class="flex items-center space-x-4">
-            <div class="w-10 h-10 bg-sky-600 rounded-lg flex items-center justify-center text-white">
-                <i data-lucide="mic"></i>
+    <div class="max-w-[1600px] mx-auto px-4 h-12 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 bg-sky-600 rounded-lg flex items-center justify-center text-white">
+                <i class="w-4 h-4" data-lucide="mic"></i>
             </div>
             <div>
-                <h1 class="text-xl font-bold tracking-tight text-slate-800">Call Recordings</h1>
-                <p class="text-xs text-slate-500 font-medium uppercase tracking-wider">Google Drive Dashboard</p>
+                <h1 class="text-base leading-tight font-bold tracking-tight text-slate-800">Call Recordings</h1>
+                <p class="text-[10px] leading-tight text-slate-500 font-medium uppercase tracking-wider">Google Drive Dashboard</p>
             </div>
         </div>
         <!-- Global Search -->
@@ -94,36 +104,36 @@
                     <i class="w-4 h-4 text-slate-400" data-lucide="search"></i>
                 </div>
                 <input id="globalSearch" oninput="debounceSearch()"
-                    class="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-sky-500 focus:border-sky-500"
+                    class="block w-full pl-10 pr-3 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-sky-500 focus:border-sky-500"
                     placeholder="ค้นหาเบอร์โทร, Call ID... (Ctrl+K)" type="text" />
             </div>
         </div>
         <!-- Auth + Stats -->
         <div class="flex items-center space-x-3">
-            <div id="statTotal" class="hidden sm:flex items-center gap-1.5 bg-sky-50 text-sky-700 px-3 py-1.5 rounded-lg text-xs font-semibold">
+            <div id="statTotal" class="hidden sm:flex items-center gap-1.5 bg-sky-50 text-sky-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
                 <i class="w-3.5 h-3.5" data-lucide="phone"></i><span>—</span>
             </div>
-            <div id="statIn" class="hidden sm:flex items-center gap-1.5 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-xs font-semibold">
+            <div id="statIn" class="hidden sm:flex items-center gap-1.5 bg-green-50 text-green-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
                 <i class="w-3.5 h-3.5" data-lucide="phone-incoming"></i><span>—</span>
             </div>
-            <div id="statOut" class="hidden sm:flex items-center gap-1.5 bg-orange-50 text-orange-700 px-3 py-1.5 rounded-lg text-xs font-semibold">
+            <div id="statOut" class="hidden sm:flex items-center gap-1.5 bg-orange-50 text-orange-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
                 <i class="w-3.5 h-3.5" data-lucide="phone-outgoing"></i><span>—</span>
             </div>
             <!-- User Info + Logout -->
             <div id="userInfoHeader" class="flex items-center gap-2">
-                <span id="headerUserName" class="text-sm font-medium text-slate-600 hidden"></span>
+                <span id="headerUserName" class="text-xs font-medium text-slate-600 hidden"></span>
                 <a href="./ui/sync_dashboard.html" target="_blank"
-                    class="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                    class="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
                     <i class="w-4 h-4" data-lucide="refresh-cw"></i> Sync ไฟล์เสียง
                 </a>
                 <button id="logoutBtn" onclick="doLogout()"
-                    class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                    class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
                     <i class="w-4 h-4" data-lucide="log-out"></i> ออกจากระบบ
                 </button>
             </div>
             <!-- Google Drive Auth -->
             <button id="authBtn" onclick="handleAuth()"
-                class="hidden flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                class="hidden flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
                 <i class="w-4 h-4" data-lucide="cloud"></i>
                 <span id="authLabel">เชื่อมต่อ Google Drive</span>
             </button>
@@ -131,24 +141,24 @@
     </div>
 </header>
 
-<main class="max-w-[1600px] mx-auto p-4 lg:p-6 space-y-5">
+<main class="max-w-[1600px] mx-auto p-3 lg:p-4 space-y-4">
 
     <!-- Source & Filters -->
-    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-        <div class="flex flex-wrap items-end gap-3">
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+        <div class="flex flex-wrap items-end gap-2">
             <div class="w-48">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">แหล่งข้อมูล</label>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">แหล่งข้อมูล</label>
                 <select id="dataSource" onchange="switchSource()"
-                    class="form-select w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500">
+                    class="form-select w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500">
                     <option value="local">📁 Local (recordings.json)</option>
                     <option value="gdrive" selected>☁️ Google Drive</option>
                 </select>
             </div>
             <div id="companySelect" class="w-48">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">บริษัท</label>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">บริษัท</label>
                 <div class="flex gap-1">
                     <select id="companyFilter" onchange="handleCompanyChange()"
-                        class="form-select flex-1 rounded-lg border-slate-200 text-sm focus:ring-sky-500">
+                        class="form-select flex-1 rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500">
                         <option value="">กำลังโหลด...</option>
                     </select>
                     <button id="addCompanyBtn" onclick="showAddCompanyModal()" title="เพิ่มบริษัทใหม่"
@@ -159,42 +169,42 @@
             </div>
             <div id="dateRangeSelect" class="flex gap-2">
                 <div class="w-40">
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">จากวันที่</label>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">จากวันที่</label>
                     <input id="dateFrom" type="date" onchange="handleSearch()"
-                        class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" />
+                        class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500" />
                 </div>
                 <div class="w-40">
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">ถึงวันที่</label>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ถึงวันที่</label>
                     <input id="dateTo" type="date" onchange="handleSearch()"
-                        class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500" />
+                        class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500" />
                 </div>
             </div>
             <div class="w-36">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">ทิศทาง</label>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ทิศทาง</label>
                 <select id="dirFilter" onchange="handleSearch()"
-                    class="form-select w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500">
+                    class="form-select w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500">
                     <option value="">ทั้งหมด</option>
                     <option value="IN">สายเข้า (IN)</option>
                     <option value="OUT">สายออก (OUT)</option>
                 </select>
             </div>
             <div class="flex-1 min-w-[200px]">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5 ml-1">ค้นหาเบอร์โทร</label>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ค้นหาเบอร์โทร</label>
                 <input id="phoneSearch" type="text" oninput="debounceSearch()"
-                    class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500"
+                    class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500"
                     placeholder="เช่น 0945547598" />
             </div>
             <div class="flex gap-2">
                 <button onclick="resetFilters()"
-                    class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm">
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm">
                     <i class="w-4 h-4" data-lucide="rotate-ccw"></i> รีเซ็ต
                 </button>
                 <button id="syncIndexBtn" onclick="syncDriveIndex()"
-                    class="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                    class="bg-sky-500 hover:bg-sky-600 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
                     <i class="w-4 h-4" data-lucide="refresh-cw"></i> ซิงค์เสียงล่าสุด
                 </button>
                 <button id="uploadBtn" onclick="showUploadModal()"
-                    class="hidden bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                    class="hidden bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
                     <i class="w-4 h-4" data-lucide="upload-cloud"></i> อัปโหลด
                 </button>
             </div>
@@ -359,7 +369,7 @@
             <div>
                 <label class="block text-sm font-medium text-slate-700 mb-1">ชื่อโฟลเดอร์บริษัท</label>
                 <input id="newCompanyName" type="text"
-                    class="form-input w-full rounded-lg border-slate-200 text-sm focus:ring-sky-500"
+                    class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500"
                     placeholder="เช่น Company = 2" />
                 <p class="text-xs text-slate-400 mt-1">จะสร้างโฟลเดอร์ใน "เก็บข้อมูลไฟล์เสียง" บน Google Drive</p>
             </div>
@@ -466,6 +476,7 @@ function doLogout() {
     sessionStorage.removeItem('voicecall_user');
     localStorage.removeItem('voicecall_user_shared');
     if (accessToken) { google.accounts.oauth2.revoke(accessToken, ()=>{}); accessToken = null; }
+    document.documentElement.classList.remove('has-session'); // undo the pre-paint hide or the login screen stays invisible
     document.getElementById('loginScreen').classList.remove('hidden');
     document.getElementById('loginUsername').value = '';
     document.getElementById('loginPassword').value = '';
@@ -729,9 +740,15 @@ async function loadGDriveCompanies() {
 // companies is fetchFromIndexApi() below being fast on every load regardless of cache.
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// Drop v1 cache entries (rows cached before duration_seconds existed) so they can't linger
+// in quota nor serve stale rows without the duration field.
+try {
+    Object.keys(localStorage).filter(k => k.startsWith('vcache_company_')).forEach(k => localStorage.removeItem(k));
+} catch (e) {}
+
 function readCompanyCache(companyFolderId) {
     try {
-        const raw = localStorage.getItem(`vcache_company_${companyFolderId}`);
+        const raw = localStorage.getItem(`vcache2_company_${companyFolderId}`);
         if (!raw) return null;
         const { data, savedAt } = JSON.parse(raw);
         if (!Array.isArray(data) || Date.now() - savedAt > CACHE_TTL_MS) return null;
@@ -741,7 +758,7 @@ function readCompanyCache(companyFolderId) {
 
 function writeCompanyCache(companyFolderId, data) {
     try {
-        localStorage.setItem(`vcache_company_${companyFolderId}`, JSON.stringify({ data, savedAt: Date.now() }));
+        localStorage.setItem(`vcache2_company_${companyFolderId}`, JSON.stringify({ data, savedAt: Date.now() }));
     } catch (e) {}
 }
 
@@ -868,7 +885,7 @@ async function syncDriveIndex() {
 
         // loadCompanyFiles() prefers localStorage cache over a fresh fetch - clear it first or
         // the reload below would just show the same stale list the sync was meant to fix.
-        try { localStorage.removeItem(`vcache_company_${companyFolderId}`); } catch (e) {}
+        try { localStorage.removeItem(`vcache2_company_${companyFolderId}`); } catch (e) {}
         await loadCompanyFiles(companyFolderId);
     } catch (err) {
         alert('ซิงค์ไม่สำเร็จ: ' + err.message);
@@ -957,7 +974,8 @@ function applySort() {
     filtered.sort((a,b) => {
         let va, vb;
         if (sortField === 'date') { va = a.date+a.time; vb = b.date+b.time; }
-        else if (sortField === 'size' || sortField === 'duration') { va = a.size; vb = b.size; }
+        else if (sortField === 'size') { va = a.size; vb = b.size; }
+        else if (sortField === 'duration') { va = durationSecs(a); vb = durationSecs(b); }
         else { va = a[sortField]||''; vb = b[sortField]||''; }
         if (va < vb) return sortAsc ? -1 : 1;
         if (va > vb) return sortAsc ? 1 : -1;
@@ -976,9 +994,15 @@ function formatPhone(phone) {
 }
 function formatSize(b) { if (b<1024) return b+' B'; if (b<1048576) return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
 function formatDate(d) { const [y,m,dd] = d.split('-'); const ms = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']; return dd+' '+ms[parseInt(m)]+' '+y; }
-function formatDuration(sizeBytes) {
-    // GSM 6.10 WAV: ~1625 bytes/sec (65-byte blocks, 320 samples at 8000Hz)
-    const secs = Math.round(Math.max(0, sizeBytes - 60) / 1625);
+// Real duration comes from the DB index (read from each file's WAV header at sync time).
+// The size-based fallback assumes GSM 6.10 (~1625 bytes/sec) and is only right for the old
+// recordings — OneCall files are PCM (16000 bytes/sec) — so it's a fallback, not the source.
+function durationSecs(r) {
+    if (r.duration != null) return r.duration;
+    return Math.round(Math.max(0, (r.size || 0) - 60) / 1625);
+}
+function formatDuration(r) {
+    const secs = durationSecs(r);
     const m = Math.floor(secs / 60), s = secs % 60;
     return `${m}:${String(s).padStart(2,'0')}`;
 }
@@ -1078,7 +1102,7 @@ function renderTable() {
             <td class="px-4 py-3 text-center">${dir}</td>
             <td class="px-4 py-3 font-mono text-slate-600 text-xs">${formatPhone(r.receiver)}</td>
             <td class="px-4 py-3 text-right text-xs text-slate-400">${formatSize(r.size)}</td>
-            <td class="px-4 py-3 text-right text-xs text-slate-500 font-mono">${formatDuration(r.size)}</td>
+            <td class="px-4 py-3 text-right text-xs text-slate-500 font-mono">${formatDuration(r)}</td>
             <td class="px-4 py-3 text-right">
                 <button onclick='playAudio(${pd})' class="p-1.5 ${isP?'bg-sky-600 text-white':'text-sky-600 hover:bg-sky-100'} rounded-lg transition-all" title="เล่น">
                     <i class="w-5 h-5" data-lucide="${isP?'pause-circle':'play-circle'}"></i>
@@ -1434,14 +1458,21 @@ document.addEventListener('DOMContentLoaded', () => {
             initGIS();
         }
     }, 200);
-    // Check existing session
-    const saved = sessionStorage.getItem('voicecall_user');
+    // Check existing session — sessionStorage is per-tab, so also fall back to the shared
+    // localStorage copy (written at login for sync_dashboard) so navigating back from another
+    // tab doesn't bounce to the login screen.
+    const saved = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
     if (saved) {
         try {
             loggedInUser = JSON.parse(saved);
             aiToken = loggedInUser.api_token || null;
+            sessionStorage.setItem('voicecall_user', saved);
             showDashboard();
-        } catch(e) { sessionStorage.removeItem('voicecall_user'); }
+        } catch(e) {
+            sessionStorage.removeItem('voicecall_user');
+            localStorage.removeItem('voicecall_user_shared');
+            document.documentElement.classList.remove('has-session'); // corrupt session: reveal the login screen again
+        }
     }
 });
 </script>
