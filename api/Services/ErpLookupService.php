@@ -150,11 +150,17 @@ class ErpLookupService
      * open — so anything searching call_history or orders by customer must look at all of them or
      * it will report "no CRM entry" for calls that were logged against a duplicate.
      *
-     * 'id'/'name' are the newest registration (what the ERP UI shows); 'all_ids' is every match.
+     * $companyId MUST be passed whenever the result will be used to look up CRM entries or orders:
+     * 26,244 of the 26,246 duplicated phone numbers are the same person registered under DIFFERENT
+     * companies in the group, so without scoping, a company-1 recording would pick up company-7
+     * call logs and orders.
+     *
+     * 'id'/'name' are the newest registration (what the ERP UI shows); 'all_ids' is every match
+     * within the requested company.
      * @param string[] $phones raw phone strings
      * @return array<string,array{id:int,name:string,all_ids:int[]}> keyed by the ORIGINAL input
      */
-    public static function findCustomersByPhones(PDO $erp, array $phones): array
+    public static function findCustomersByPhones(PDO $erp, array $phones, ?int $companyId = null): array
     {
         $formatsByPhone = [];
         $allFormats = [];
@@ -174,13 +180,19 @@ class ErpLookupService
 
         $formatList = array_keys($allFormats);
         $ph = implode(',', array_fill(0, count($formatList), '?'));
+        $params = array_merge($formatList, $formatList, $formatList);
+        $companySql = '';
+        if ($companyId !== null) {
+            $companySql = ' AND company_id = ?';
+            $params[] = $companyId;
+        }
         $stmt = $erp->prepare("
             SELECT customer_id, first_name, last_name, phone, recipient_phone, backup_phone
             FROM customers
-            WHERE phone IN ({$ph}) OR recipient_phone IN ({$ph}) OR backup_phone IN ({$ph})
+            WHERE (phone IN ({$ph}) OR recipient_phone IN ({$ph}) OR backup_phone IN ({$ph})){$companySql}
             ORDER BY date_registered ASC
         ");
-        $stmt->execute(array_merge($formatList, $formatList, $formatList));
+        $stmt->execute($params);
 
         // Ascending order means later rows overwrite id/name, leaving the newest registration in
         // place — matching findCustomerByPhone()'s ORDER BY date_registered DESC LIMIT 1 — while

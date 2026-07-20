@@ -48,21 +48,29 @@ class ErpCallOutcomeService
             return [];
         }
 
-        // 1. Resolve every phone on both legs in one round-trip.
-        $phones = [];
+        // 1. Resolve every phone on both legs, one round-trip per company. Scoping by company is
+        //    required, not an optimization: the same person is commonly registered under several
+        //    companies in the group with the same phone, and their other company's call logs and
+        //    orders must not leak into this recording.
+        $phonesByCompany = [];
         foreach ($recordings as $r) {
+            $co = (int) ($r['company_id'] ?? 0);
             foreach ([$r['caller_phone'] ?? null, $r['receiver_phone'] ?? null] as $p) {
                 if ($p) {
-                    $phones[$p] = true;
+                    $phonesByCompany[$co][$p] = true;
                 }
             }
         }
-        $customers = ErpLookupService::findCustomersByPhones($erp, array_keys($phones));
+        $customersByCompany = [];
+        foreach ($phonesByCompany as $co => $phones) {
+            $customersByCompany[$co] = ErpLookupService::findCustomersByPhones($erp, array_keys($phones), $co ?: null);
+        }
 
         $custByRecording = [];
         $customerIds = [];
         foreach ($recordings as $r) {
             // The customer may be on either leg depending on call direction.
+            $customers = $customersByCompany[(int) ($r['company_id'] ?? 0)] ?? [];
             $cust = $customers[$r['receiver_phone'] ?? ''] ?? $customers[$r['caller_phone'] ?? ''] ?? null;
             $custByRecording[$r['gdrive_file_id']] = $cust;
             if ($cust) {

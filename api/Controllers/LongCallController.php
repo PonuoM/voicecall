@@ -60,7 +60,7 @@ function handle_long_calls(PDO $pdo, PDO $erp, array $currentUser, ?string $id):
     ", $params);
 
     $rows = fetch_all($pdo, "
-        SELECT g.gdrive_file_id, g.call_code, g.call_date, g.call_time, g.caller_phone,
+        SELECT g.gdrive_file_id, g.company_id, g.call_code, g.call_date, g.call_time, g.caller_phone,
                g.receiver_phone, g.direction, g.duration_seconds, g.size_bytes,
                c.id AS conversation_id, c.status AS conversation_status
         FROM gdrive_file_index g

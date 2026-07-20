@@ -40,7 +40,7 @@ function handle_call_outcomes(PDO $pdo, PDO $erp, array $currentUser, ?string $i
     }
 
     $rows = fetch_all($pdo, "
-        SELECT gdrive_file_id, call_date, call_time, caller_phone, receiver_phone, duration_seconds
+        SELECT gdrive_file_id, company_id, call_date, call_time, caller_phone, receiver_phone, duration_seconds
         FROM gdrive_file_index
         WHERE gdrive_file_id IN ({$placeholders}){$companyFilter}
     ", $params);
