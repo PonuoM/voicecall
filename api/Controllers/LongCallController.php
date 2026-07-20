@@ -1,15 +1,19 @@
 <?php
 
 require_once __DIR__ . '/../Services/ErpLookupService.php';
+require_once __DIR__ . '/../Services/ErpCallOutcomeService.php';
 
 /**
- * Long-call report — abnormally long recordings, read straight from gdrive_file_index (free,
- * no AI involved). Two things make a long call worth a look: the call itself (what was actually
- * discussed for 90 minutes?) and the PATTERN across calls — the same employee racking up many
- * long calls, especially repeatedly to the same number, is the signature of talk-time padding
- * (ปั่น talk-time เพื่อ KPI) rather than genuine selling.
+ * Long-call report — abnormally long recordings, read from gdrive_file_index (free, no AI) and
+ * enriched with what the ERP says came of them: the telesale's own CRM entry
+ * (call_history.result, where 'ขายได้' = closed a sale) and any order placed around the call with
+ * its status, so returns (ตีกลับ) show up next to the recording that produced them.
  *
- *   GET long-calls?company_id=&min_minutes=30&limit=200
+ * Two things make a long call worth a look: the call itself, and the pattern across calls — an
+ * employee racking up hours of long calls with nothing sold, especially repeatedly to the same
+ * number, is the signature of talk-time padding (ปั่น talk time) rather than genuine selling.
+ *
+ *   GET long-calls?company_id=&min_minutes=30&from=&to=&limit=200
  */
 function handle_long_calls(PDO $pdo, PDO $erp, array $currentUser, ?string $id): void
 {
@@ -25,6 +29,10 @@ function handle_long_calls(PDO $pdo, PDO $erp, array $currentUser, ?string $id):
     $minMinutes = max(1, min(600, (int) ($_GET['min_minutes'] ?? 30)));
     $minSeconds = $minMinutes * 60;
     $limit = min(500, max(1, (int) ($_GET['limit'] ?? 200)));
+    // Ceiling on how many recordings get ERP-enriched in one request. The per-employee rollup is
+    // computed from this same set, so it must cover the whole filtered range, not just the page —
+    // at the default 30-minute threshold that is only a few hundred rows company-wide.
+    $enrichCap = 2000;
 
     $where = ['company_id = ?'];
     $params = [$companyId];
@@ -37,12 +45,10 @@ function handle_long_calls(PDO $pdo, PDO $erp, array $currentUser, ?string $id):
         $params[] = $_GET['to'];
     }
     $whereSql = implode(' AND ', $where);
-    // The call-list query joins conversations, which also has company_id/call_date — the same
-    // conditions need table-qualified column names there.
     $whereSqlG = 'g.' . implode(' AND g.', $where);
 
-    // Fixed buckets so the page can show "how many calls are there at each threshold" without
-    // the user having to re-query one threshold at a time.
+    // Fixed buckets so the page can show how many calls sit at each threshold without the user
+    // re-querying one threshold at a time.
     $buckets = fetch_one($pdo, "
         SELECT COUNT(*)                          AS total,
                SUM(duration_seconds >= 600)      AS m10,
@@ -53,7 +59,7 @@ function handle_long_calls(PDO $pdo, PDO $erp, array $currentUser, ?string $id):
         FROM gdrive_file_index WHERE {$whereSql}
     ", $params);
 
-    $calls = fetch_all($pdo, "
+    $rows = fetch_all($pdo, "
         SELECT g.gdrive_file_id, g.call_code, g.call_date, g.call_time, g.caller_phone,
                g.receiver_phone, g.direction, g.duration_seconds, g.size_bytes,
                c.id AS conversation_id, c.status AS conversation_status
@@ -61,61 +67,148 @@ function handle_long_calls(PDO $pdo, PDO $erp, array $currentUser, ?string $id):
         LEFT JOIN conversations c ON c.source = 'gdrive' AND c.audio_ref = g.gdrive_file_id
         WHERE {$whereSqlG} AND g.duration_seconds >= ?
         ORDER BY g.duration_seconds DESC
-        LIMIT {$limit}
+        LIMIT {$enrichCap}
     ", array_merge($params, [$minSeconds]));
 
-    // Ranking: who produces these long calls. distinct_receivers vs long_calls is the tell —
-    // 20 long calls spread over 20 customers is a talker; 20 over 2 numbers is padding.
-    $byCaller = fetch_all($pdo, "
-        SELECT caller_phone,
-               COUNT(*)                                  AS long_calls,
-               COUNT(DISTINCT receiver_phone)            AS distinct_receivers,
-               ROUND(MAX(duration_seconds)/60)           AS max_minutes,
-               ROUND(SUM(duration_seconds)/3600, 1)      AS total_hours,
-               MIN(call_date)                            AS first_seen,
-               MAX(call_date)                            AS last_seen
-        FROM gdrive_file_index
-        WHERE {$whereSql} AND duration_seconds >= ?
-        GROUP BY caller_phone
-        ORDER BY long_calls DESC, total_hours DESC
-        LIMIT 50
-    ", array_merge($params, [$minSeconds]));
+    $outcomes = [];
+    $outcomeError = null;
+    try {
+        $outcomes = ErpCallOutcomeService::forRecordings($erp, $rows);
+    } catch (Throwable $e) {
+        // The report is still useful without ERP enrichment — degrade instead of failing.
+        $outcomeError = $e->getMessage();
+    }
 
-    // Same caller -> same receiver, more than once, all long: the strongest padding signal.
-    $repeatedPairs = fetch_all($pdo, "
-        SELECT caller_phone, receiver_phone,
-               COUNT(*)                             AS times,
-               ROUND(SUM(duration_seconds)/3600, 1) AS total_hours,
-               ROUND(MAX(duration_seconds)/60)      AS max_minutes
-        FROM gdrive_file_index
-        WHERE {$whereSql} AND duration_seconds >= ?
-        GROUP BY caller_phone, receiver_phone
-        HAVING times >= 2
-        ORDER BY times DESC, total_hours DESC
-        LIMIT 30
-    ", array_merge($params, [$minSeconds]));
+    $employees = ErpLookupService::findEmployeesByPhones($erp, array_values(array_unique(array_filter(array_column($rows, 'caller_phone')))));
 
-    // Resolve caller numbers to ERP employees in one batch round-trip.
-    $phones = array_unique(array_merge(
-        array_column($byCaller, 'caller_phone'),
-        array_column($repeatedPairs, 'caller_phone'),
-        array_column($calls, 'caller_phone')
-    ));
-    $employees = ErpLookupService::findEmployeesByPhones($erp, array_filter($phones));
+    // Roll up per caller and per caller->receiver pair over the whole filtered set.
+    $byCaller = [];
+    $pairs = [];
+    foreach ($rows as $r) {
+        $o = $outcomes[$r['gdrive_file_id']] ?? null;
+        $phone = $r['caller_phone'];
 
-    $attachEmployee = function (array $row) use ($employees) {
-        $emp = $employees[$row['caller_phone']] ?? null;
-        $row['employee_id'] = $emp ? $emp['id'] : null;
-        $row['employee_name'] = $emp ? $emp['name'] : null;
-        return $row;
-    };
+        if (!isset($byCaller[$phone])) {
+            $byCaller[$phone] = [
+                'caller_phone' => $phone,
+                'long_calls' => 0, 'total_seconds' => 0, 'max_seconds' => 0,
+                'sold' => 0, 'with_order' => 0, 'returned' => 0, 'logged' => 0,
+                'receivers' => [], 'first_seen' => $r['call_date'], 'last_seen' => $r['call_date'],
+            ];
+        }
+        $c = &$byCaller[$phone];
+        $c['long_calls']++;
+        $c['total_seconds'] += (int) $r['duration_seconds'];
+        $c['max_seconds'] = max($c['max_seconds'], (int) $r['duration_seconds']);
+        $c['receivers'][$r['receiver_phone']] = true;
+        $c['first_seen'] = min($c['first_seen'], $r['call_date']);
+        $c['last_seen'] = max($c['last_seen'], $r['call_date']);
+        if ($o) {
+            if ($o['call_log']) $c['logged']++;
+            if ($o['sold']) $c['sold']++;
+            if (!empty($o['orders'])) $c['with_order']++;
+            if ($o['returned']) $c['returned']++;
+        }
+        unset($c);
+
+        $pairKey = $phone . '|' . $r['receiver_phone'];
+        if (!isset($pairs[$pairKey])) {
+            $pairs[$pairKey] = ['caller_phone' => $phone, 'receiver_phone' => $r['receiver_phone'],
+                                'times' => 0, 'total_seconds' => 0, 'max_seconds' => 0, 'sold' => 0];
+        }
+        $pairs[$pairKey]['times']++;
+        $pairs[$pairKey]['total_seconds'] += (int) $r['duration_seconds'];
+        $pairs[$pairKey]['max_seconds'] = max($pairs[$pairKey]['max_seconds'], (int) $r['duration_seconds']);
+        if ($o && $o['sold']) {
+            $pairs[$pairKey]['sold']++;
+        }
+    }
+
+    $byCallerOut = [];
+    foreach ($byCaller as $c) {
+        $emp = $employees[$c['caller_phone']] ?? null;
+        $byCallerOut[] = [
+            'caller_phone' => $c['caller_phone'],
+            'employee_id' => $emp ? $emp['id'] : null,
+            'employee_name' => $emp ? $emp['name'] : null,
+            'long_calls' => $c['long_calls'],
+            'distinct_receivers' => count($c['receivers']),
+            'total_hours' => round($c['total_seconds'] / 3600, 1),
+            'max_minutes' => (int) round($c['max_seconds'] / 60),
+            'sold' => $c['sold'],
+            'with_order' => $c['with_order'],
+            'returned' => $c['returned'],
+            'logged' => $c['logged'],
+            'first_seen' => $c['first_seen'],
+            'last_seen' => $c['last_seen'],
+        ];
+    }
+    usort($byCallerOut, function ($a, $b) {
+        return [$b['long_calls'], $b['total_hours']] <=> [$a['long_calls'], $a['total_hours']];
+    });
+    $byCallerOut = array_slice($byCallerOut, 0, 50);
+
+    $pairsOut = [];
+    foreach ($pairs as $p) {
+        if ($p['times'] < 2) {
+            continue; // one long call to a customer is normal; repeats are the signal
+        }
+        $emp = $employees[$p['caller_phone']] ?? null;
+        $pairsOut[] = [
+            'caller_phone' => $p['caller_phone'],
+            'receiver_phone' => $p['receiver_phone'],
+            'employee_name' => $emp ? $emp['name'] : null,
+            'times' => $p['times'],
+            'sold' => $p['sold'],
+            'total_hours' => round($p['total_seconds'] / 3600, 1),
+            'max_minutes' => (int) round($p['max_seconds'] / 60),
+        ];
+    }
+    usort($pairsOut, function ($a, $b) {
+        return [$b['times'], $b['total_hours']] <=> [$a['times'], $a['total_hours']];
+    });
+    $pairsOut = array_slice($pairsOut, 0, 30);
+
+    $calls = [];
+    foreach (array_slice($rows, 0, $limit) as $r) {
+        $o = $outcomes[$r['gdrive_file_id']] ?? null;
+        $emp = $employees[$r['caller_phone']] ?? null;
+        $r['employee_id'] = $emp ? $emp['id'] : null;
+        $r['employee_name'] = $emp ? $emp['name'] : null;
+        $r['customer_name'] = $o && $o['customer'] ? $o['customer']['name'] : null;
+        $r['customer_id'] = $o && $o['customer'] ? $o['customer']['id'] : null;
+        $r['call_result'] = $o && $o['call_log'] ? $o['call_log']['result'] : null;
+        $r['call_status'] = $o && $o['call_log'] ? $o['call_log']['status'] : null;
+        $r['call_notes'] = $o && $o['call_log'] ? $o['call_log']['notes'] : null;
+        $r['sold'] = $o ? $o['sold'] : false;
+        $r['returned'] = $o ? $o['returned'] : false;
+        $r['orders'] = $o ? $o['orders'] : [];
+        $calls[] = $r;
+    }
+
+    // Headline numbers for the filtered set — the "hours spent vs sales made" question.
+    $totals = ['calls' => count($rows), 'hours' => 0.0, 'sold' => 0, 'with_order' => 0, 'returned' => 0, 'logged' => 0];
+    foreach ($rows as $r) {
+        $totals['hours'] += (int) $r['duration_seconds'] / 3600;
+        $o = $outcomes[$r['gdrive_file_id']] ?? null;
+        if ($o) {
+            if ($o['call_log']) $totals['logged']++;
+            if ($o['sold']) $totals['sold']++;
+            if (!empty($o['orders'])) $totals['with_order']++;
+            if ($o['returned']) $totals['returned']++;
+        }
+    }
+    $totals['hours'] = round($totals['hours'], 1);
+    $totals['truncated'] = count($rows) >= $enrichCap;
 
     json_response([
         'ok' => true,
         'min_minutes' => $minMinutes,
         'buckets' => $buckets,
-        'calls' => array_map($attachEmployee, $calls),
-        'by_caller' => array_map($attachEmployee, $byCaller),
-        'repeated_pairs' => array_map($attachEmployee, $repeatedPairs),
+        'totals' => $totals,
+        'erp_error' => $outcomeError,
+        'calls' => $calls,
+        'by_caller' => $byCallerOut,
+        'repeated_pairs' => $pairsOut,
     ]);
 }

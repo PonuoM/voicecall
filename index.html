@@ -665,10 +665,20 @@ function parseWavFilename(file) {
             const noDir = direction === 'OUT' ? rest.slice(0, -4) : rest.slice(0, -3);
             const phones = noDir.match(/\+\d+/g) || [];
             const callId = noDir.split('-')[0];
+            // Twin of GdriveIndexer::parseFilename(): OneCall (numeric call ids) stamps these
+            // filenames in UTC while the old PBX (letter codes) stamps Thai local time, so
+            // OneCall rows are shifted +7h here to keep every path on Asia/Bangkok.
+            let date = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+            let time = `${timeStr.slice(0,2)}:${timeStr.slice(2,4)}:${timeStr.slice(4,6)}`;
+            if (/^[0-9]{7,12}$/.test(callId)) {
+                const t = new Date(`${date}T${time}Z`); // parse as UTC, render as Bangkok
+                const p = new Date(t.getTime() + 7 * 3600 * 1000);
+                date = p.toISOString().slice(0, 10);
+                time = p.toISOString().slice(11, 19);
+            }
             return {
                 id: callId,
-                date: `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`,
-                time: `${timeStr.slice(0,2)}:${timeStr.slice(2,4)}:${timeStr.slice(4,6)}`,
+                date, time,
                 caller: phones[0] || '', receiver: phones[1] || '',
                 direction, fileId: file.id, filename: file.name,
                 size: parseInt(file.size) || 0

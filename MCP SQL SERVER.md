@@ -346,6 +346,17 @@ $conn->set_charset("utf8mb4");
 
 ## 🔑 ข้อควรรู้
 
+- ⏰ **เวลาในไฟล์เสียงมี 2 มาตรฐาน** — ระบบ OneCall (call_code เป็นตัวเลข 9 หลัก เช่น `107988980`
+  ใช้ตั้งแต่ 2026-06-12) เขียนชื่อไฟล์เป็น **UTC** ส่วน PBX เดิม (call_code ตัวอักษร เช่น `OYIP`)
+  และไฟล์ `myrecordings_*` เป็นเวลาไทยอยู่แล้ว — `GdriveIndexer::parseFilename()` แปลง UTC→ไทย
+  ให้ตั้งแต่ตอน sync และ `migrations/008_fix_onecall_timezone.sql` แก้ข้อมูลเก่าไปแล้ว
+  (มี `tz_normalized` กันรันซ้ำ) **ข้อมูลใน DB ตอนนี้เป็นเวลาไทยทั้งหมด** ห้ามบวก 7 ซ้ำอีก
+- 🔗 **จับคู่ไฟล์เสียงกับผลการขายใน ERP ได้** ผ่าน `ErpCallOutcomeService`: เบอร์ → `customers` →
+  หา `call_history` ที่ใกล้ที่สุดในช่วง [เริ่มสาย − 30 นาที, จบสาย + 30 นาที] (พนักงานคีย์ CRM
+  หลังวางสาย ค่ามัธยฐาน +3~4 นาที **ต้องเผื่อความยาวสายด้วย** ไม่งั้นสายยาวจะจับไม่ติด) —
+  `call_history.result = 'ขายได้'` คือปิดการขายได้ ครอบคลุมราว 40-70% ของสาย (ที่เหลือคือสายที่
+  พนักงานไม่ได้คีย์ CRM ซึ่งเป็นสัญญาณในตัวมันเอง) พร้อมดึง `orders` ในช่วง 5 วันหลังสาย
+  (`order_status` ∈ Cancelled/Returned/BadDebt = ตีกลับ)
 - `conversations.status`: `pending` → `transcribing` → ... → `completed`/`failed`
 - เบอร์โทรใน `conversations` เก็บแบบ E.164 (`+66...`) ส่วน `primacom_mini_erp.customers.phone`
   เก็บแบบ local (`0...`) และ `primacom_mini_erp.users.phone` **เก็บผสมทั้ง 2 แบบ** — ดู

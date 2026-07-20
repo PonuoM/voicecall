@@ -149,6 +149,16 @@ class GdriveIndexer
     }
 
     /**
+     * True for OneCall call ids, whose recordings carry UTC timestamps. Bounded at 12 digits so a
+     * 14-digit YYYYMMDDHHMMSS code (the "myrecordings_" filenames, which are already local) can
+     * never be mistaken for one.
+     */
+    public static function isUtcCallCode(?string $callCode): bool
+    {
+        return $callCode !== null && preg_match('/^[0-9]{7,12}$/', $callCode) === 1;
+    }
+
+    /**
      * Same two filename formats as index.html's parseWavFilename(), kept in lockstep with it.
      * @return array{call_code:?string,call_date:?string,call_time:?string,caller_phone:?string,receiver_phone:?string,direction:?string}|null
      */
@@ -167,10 +177,26 @@ class GdriveIndexer
             preg_match_all('/\+\d+/', $noDir, $phoneMatches);
             $phones = $phoneMatches[0];
             $callParts = explode('-', $noDir);
+            $callCode = $callParts[0];
+            $date = substr($dateStr, 0, 4) . '-' . substr($dateStr, 4, 2) . '-' . substr($dateStr, 6, 2);
+            $time = substr($timeStr, 0, 2) . ':' . substr($timeStr, 2, 2) . ':' . substr($timeStr, 4, 2);
+
+            // Two systems write this same filename shape, and they disagree on timezone: the old
+            // PBX (letter call codes, e.g. "OYIP") stamps Thai local time, while OneCall (numeric
+            // ids, e.g. "107988980", live since 2026-06-12) stamps UTC. Everything downstream —
+            // display, and joining to primacom_mini_erp which is local — expects Asia/Bangkok, so
+            // OneCall timestamps are converted here at the single point of entry.
+            // See migrations/008_fix_onecall_timezone.sql for how this was verified.
+            if (self::isUtcCallCode($callCode)) {
+                $shifted = strtotime($date . ' ' . $time . ' +7 hours');
+                $date = date('Y-m-d', $shifted);
+                $time = date('H:i:s', $shifted);
+            }
+
             return [
-                'call_code' => $callParts[0],
-                'call_date' => substr($dateStr, 0, 4) . '-' . substr($dateStr, 4, 2) . '-' . substr($dateStr, 6, 2),
-                'call_time' => substr($timeStr, 0, 2) . ':' . substr($timeStr, 2, 2) . ':' . substr($timeStr, 4, 2),
+                'call_code' => $callCode,
+                'call_date' => $date,
+                'call_time' => $time,
                 'caller_phone' => $phones[0] ?? null,
                 'receiver_phone' => $phones[1] ?? null,
                 'direction' => $direction,

@@ -144,6 +144,64 @@ class ErpLookupService
     }
 
     /**
+     * Batch version of findCustomerByPhone(). Same best-effort caveats: a phone can appear on
+     * several customer rows (duplicates/legacy), and the newest registration wins.
+     * @param string[] $phones raw phone strings
+     * @return array<string,array{id:int,name:string}> keyed by the ORIGINAL input string
+     */
+    public static function findCustomersByPhones(PDO $erp, array $phones): array
+    {
+        $formatsByPhone = [];
+        $allFormats = [];
+        foreach ($phones as $phone) {
+            $formats = self::candidateFormats($phone);
+            if (empty($formats)) {
+                continue;
+            }
+            $formatsByPhone[$phone] = $formats;
+            foreach ($formats as $f) {
+                $allFormats[$f] = true;
+            }
+        }
+        if (empty($allFormats)) {
+            return [];
+        }
+
+        $formatList = array_keys($allFormats);
+        $ph = implode(',', array_fill(0, count($formatList), '?'));
+        $stmt = $erp->prepare("
+            SELECT customer_id, first_name, last_name, phone, recipient_phone, backup_phone
+            FROM customers
+            WHERE phone IN ({$ph}) OR recipient_phone IN ({$ph}) OR backup_phone IN ({$ph})
+            ORDER BY date_registered ASC
+        ");
+        $stmt->execute(array_merge($formatList, $formatList, $formatList));
+
+        // Later rows overwrite earlier ones, so ordering ascending leaves the newest registration
+        // in place — matching findCustomerByPhone()'s ORDER BY date_registered DESC LIMIT 1.
+        $byStoredPhone = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $entry = ['id' => (int) $row['customer_id'], 'name' => trim($row['first_name'] . ' ' . $row['last_name'])];
+            foreach ([$row['phone'], $row['recipient_phone'], $row['backup_phone']] as $p) {
+                if ($p !== null && $p !== '') {
+                    $byStoredPhone[$p] = $entry;
+                }
+            }
+        }
+
+        $result = [];
+        foreach ($formatsByPhone as $phone => $formats) {
+            foreach ($formats as $f) {
+                if (isset($byStoredPhone[$f])) {
+                    $result[$phone] = $byStoredPhone[$f];
+                    break;
+                }
+            }
+        }
+        return $result;
+    }
+
+    /**
      * Batch version of findEmployeeByPhone() — one query for a whole list of numbers instead of
      * one round-trip each, for report screens that resolve a ranking of callers at once.
      * @param string[] $phones raw phone strings (any format candidateFormats() understands)
