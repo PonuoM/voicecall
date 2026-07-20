@@ -121,14 +121,23 @@
                         <button class="btn-shortcut" onclick="setDateShortcut('today')">Today</button>
                         <button class="btn-shortcut" onclick="setDateShortcut('yesterday')">Yesterday</button>
                         <button class="btn-shortcut" onclick="setDateShortcut('last7days')">Last 7 Days</button>
+                        <button class="btn-shortcut" style="background-color:#6f42c1;" onclick="window.open('super_admin_prompts.html', '_blank')">⚙️ AI Prompts</button>
                     </div>
                 </div>
-                <div class="controls">
-                    <label>Start:</label>
-                    <input type="datetime-local" id="startDate" value="2026-06-30T00:00">
-                    <label>End:</label>
-                    <input type="datetime-local" id="endDate" value="2026-06-30T23:59">
-                    <button class="btn-sync" id="btnSync" onclick="startSync()">▶ Start Sync</button>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px;">
+                    <div class="controls">
+                        <label>Start:</label>
+                        <input type="datetime-local" id="startDate" value="2026-06-30T00:00">
+                        <label>End:</label>
+                        <input type="datetime-local" id="endDate" value="2026-06-30T23:59">
+                        <button class="btn-sync" id="btnSync" onclick="startSync()">▶ Start Sync</button>
+                    </div>
+                    <div style="margin-top: 10px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; font-size: 13px;">
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #5f6368; font-weight: 500;">
+                            <input type="checkbox" id="preventDuplicateCb" checked> 
+                            ป้องกันไฟล์ซ้ำ (Smart Deduplication)
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -246,9 +255,31 @@
                 const user = JSON.parse(sessionData);
                 currentCompanyId = user.company_id;
                 document.getElementById('companyInfo').innerText = user.company_name ? `บริษัท: ${user.company_name}` : `Company ID: ${currentCompanyId}`;
+                // Initialize Super Admin features and Load Settings
+                const btnConfig = document.getElementById('btnSuperAdminConfig');
+                if (user.is_super_admin && btnConfig) {
+                    btnConfig.style.display = 'block';
+                }
+                
+                if (typeof loadCompanySettings === 'function') {
+                    loadCompanySettings();
+                }
+                
+                // Fetch company specific settings
+                fetch(`../api/sync/settings.php?company_id=${currentCompanyId}`)
+                    .then(res => res.json())
+                    .then(settingsData => {
+                        if (settingsData.success) {
+                            document.getElementById('preventDuplicateCb').checked = settingsData.prevent_duplicate;
+                        }
+                    })
+                    .catch(e => console.error('Error loading settings:', e));
+
                 // Now that company ID is known, fetch stats
                 fetchCalendarStats();
-            } catch (e) {}
+            } catch (e) {
+                console.error("Session parsing error:", e);
+            }
         }
         
         if (!currentCompanyId) {
@@ -356,7 +387,7 @@
                     return;
                 }
 
-                const userConfirmed = confirm(`พบไฟล์เสียงที่รอการโอนย้ายจำนวน ${totalFiles} ไฟล์\n\nคุณต้องการเริ่มต้นการโอนย้ายไฟล์ลง Google Drive เลยหรือไม่?`);
+                const userConfirmed = await showConfirmModal('ยืนยันการโอนย้าย', `พบไฟล์เสียงที่รอการโอนย้ายจำนวน ${totalFiles} ไฟล์\n\nคุณต้องการเริ่มต้นการโอนย้ายไฟล์ลง Google Drive เลยหรือไม่?`);
                 if (!userConfirmed) {
                     resetUI();
                     return;
@@ -380,6 +411,7 @@
                 return;
             }
 
+            const allowDuplicates = !document.getElementById('preventDuplicateCb').checked;
             const batchSize = 10;
             const batch = [];
             for (let i = 0; i < batchSize && currentIndex < totalFiles; i++) {
@@ -393,14 +425,15 @@
                     formData.append('id', file.id);
                     formData.append('start', file.start);
                     formData.append('caller', file.caller);
-                    formData.append('receiver', file.receiver);
-                    formData.append('direction', file.direction);
-                    formData.append('company_id', currentCompanyId);
-                    formData.append('folder_id', currentFolderId);
-
                     const res = await fetch('../api/sync/process_single.php', {
                         method: 'POST',
-                        body: formData
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            record: file, 
+                            company_id: currentCompanyId,
+                            folder_id: currentFolderId,
+                            allow_duplicates: allowDuplicates
+                        })
                     });
                     const data = await res.json();
 
@@ -459,5 +492,6 @@
             }
         }
     </script>
+    <script src="components/dialogs.js"></script>
 </body>
 </html>

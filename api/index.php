@@ -24,6 +24,11 @@ try {
             handle_drive_index($pdo, $currentUser, $id);
             break;
 
+        case 'prompts':
+            require_once __DIR__ . '/Controllers/PromptController.php';
+            handle_prompts($pdo, $currentUser, $id, $action);
+            break;
+
         default:
             json_response(['ok' => false, 'error' => 'NOT_FOUND', 'message' => "Unknown resource '{$resource}'"], 404);
     }

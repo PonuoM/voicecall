@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Admin - AI Prompts</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+    </style>
+</head>
+<body class="text-slate-800">
+    
+    <nav class="bg-white border-b shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-3">
+                    <button onclick="window.close()" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                        <i data-lucide="arrow-left" class="w-5 h-5 text-slate-600"></i>
+                    </button>
+                    <div>
+                        <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-indigo-600">AI Prompt Configuration</h1>
+                        <p class="text-xs text-slate-500 font-medium">Super Admin Control Panel</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i>
+                        <span class="text-sm font-medium text-slate-700">Admin</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Column: Settings -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Company Selector -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">เลือกบริษัท (Company)</label>
+                    <select id="companySelect" onchange="loadPrompt()" class="w-full border-slate-300 rounded-lg shadow-sm px-4 py-2 bg-slate-50 focus:ring-purple-500 focus:border-purple-500">
+                        <option value="">กำลังโหลดบริษัท...</option>
+                    </select>
+                </div>
+
+                <!-- Editor -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative" id="editorSection" style="display:none; min-height: 400px;">
+                    <!-- Loading overlay -->
+                    <div id="loadingOverlay" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center hidden">
+                        <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-purple-600 mb-2"></i>
+                        <span class="text-sm font-medium text-slate-600">กำลังประมวลผล...</span>
+                    </div>
+
+                    <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                        <h2 class="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="bot" class="w-5 h-5 text-purple-500"></i> Unified Pipeline Agent
+                        </h2>
+                        <div class="flex items-center gap-2">
+                            <button onclick="resetPrompt()" class="px-3 py-1.5 bg-white border shadow-sm rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 transition-colors flex items-center gap-1">
+                                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Reset to Default
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="p-6 space-y-6">
+                        <!-- Default Prompt (Read Only) -->
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-2 flex items-center justify-between">
+                                <span>Default JSON Schema <span class="text-xs font-normal text-slate-500 ml-2">(Read-only, ล็อคโครงสร้างเพื่อความปลอดภัย)</span></span>
+                            </label>
+                            <textarea id="defaultPrompt" readonly class="w-full h-40 bg-slate-100 text-slate-500 border-slate-200 rounded-lg p-3 text-sm font-mono focus:ring-0 focus:outline-none resize-none cursor-not-allowed"></textarea>
+                        </div>
+
+                        <!-- Additional Prompt -->
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-2">
+                                คำสั่งเพิ่มเติม (Additional Instructions)
+                            </label>
+                            <p class="text-xs text-slate-500 mb-2">เช่น ข้อมูลสินค้าเฉพาะบริษัท, กฎการขาย, หรือเทคนิคการประหยัด Token ระบบจะนำข้อความนี้ไปต่อท้าย Default Schema ให้อัตโนมัติ</p>
+                            <textarea id="additionalPrompt" placeholder="พิมพ์คำสั่งเพิ่มเติมที่นี่..." class="w-full h-40 border-slate-300 rounded-lg shadow-sm p-3 text-sm font-mono focus:ring-purple-500 focus:border-purple-500"></textarea>
+                        </div>
+
+                        <!-- Token Limit -->
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-2">
+                                Max Tokens Limit
+                            </label>
+                            <input type="number" id="maxTokens" placeholder="เช่น 2000 (เว้นว่างไว้เพื่อใช้ค่าตั้งต้นของโมเดล)" class="w-full border-slate-300 rounded-lg shadow-sm px-4 py-2 focus:ring-purple-500 focus:border-purple-500">
+                        </div>
+
+                    </div>
+                    
+                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between">
+                        <button onclick="previewFinalPrompt()" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold shadow-sm hover:bg-slate-50 transition-colors flex items-center gap-2">
+                            <i data-lucide="eye" class="w-4 h-4"></i> Preview Final Prompt
+                        </button>
+                        <button onclick="savePrompt()" class="px-6 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold shadow-sm hover:bg-purple-700 transition-colors flex items-center gap-2">
+                            <i data-lucide="save" class="w-4 h-4"></i> บันทึกการตั้งค่า
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Cheat Sheet -->
+            <div class="space-y-6">
+                <div class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-lg p-6 text-white">
+                    <div class="flex items-center gap-2 mb-4">
+                        <i data-lucide="lightbulb" class="w-5 h-5 text-yellow-400"></i>
+                        <h3 class="font-semibold text-lg">Cheat Sheet</h3>
+                    </div>
+                    <p class="text-sm text-slate-300 mb-4">ในกระบวนการวิเคราะห์จริง ระบบจะนำข้อมูลมาประกอบกันตามลำดับดังนี้:</p>
+                    
+                    <ol class="space-y-3 text-sm text-slate-300 list-decimal list-inside">
+                        <li><span class="text-purple-300 font-mono">Default JSON Schema</span> (บังคับ)</li>
+                        <li><span class="text-purple-300 font-mono">Additional Instructions</span> (ที่คุณพิมพ์)</li>
+                        <li><span class="text-sky-300 font-mono">EXTERNAL CONTEXT</span> (ถ้ามีการส่งมาจาก API)</li>
+                        <li><span class="text-emerald-300 font-mono">BUSINESS RULES</span> (ดึงจากตารางกฏ)</li>
+                        <li><span class="text-amber-300 font-mono">TRANSCRIPT</span> (เนื้อหาการสนทนา)</li>
+                    </ol>
+
+                    <div class="mt-6 p-4 bg-white/10 rounded-lg border border-white/20">
+                        <h4 class="text-xs font-semibold text-slate-200 uppercase tracking-wider mb-2">💡 Pro Tip</h4>
+                        <p class="text-xs text-slate-300 leading-relaxed">
+                            คุณไม่จำเป็นต้องอธิบายกฎทีละข้อในหน้าจอนี้ ให้ไปตั้งค่าใน "กฎกติกาการสนทนา (Compliance Rules)" แทน ระบบจะดึงมารวมให้เอง!
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="previewModal" class="fixed inset-0 z-[100] hidden">
+        <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onclick="closePreviewModal()"></div>
+        <div class="relative mx-auto mt-10 w-full max-w-4xl bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+            <div class="px-6 py-4 border-b flex justify-between items-center bg-slate-50 rounded-t-2xl">
+                <h2 class="text-lg font-bold text-slate-800">Preview Final Prompt</h2>
+                <button onclick="closePreviewModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="w-5 h-5" data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto bg-slate-800 rounded-b-2xl">
+                <pre id="previewText" class="text-xs text-green-400 font-mono whitespace-pre-wrap leading-relaxed"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        let apiBase = '../api/index.php';
+        let currentDefaultPrompt = '';
+        let adminUser = null;
+
+        // Init session check
+        const sessionData = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
+        if (sessionData) {
+            try {
+                const user = JSON.parse(sessionData);
+                if (user.is_super_admin) {
+                    adminUser = user;
+                } else {
+                    alert('Access Denied. Super Admin only.');
+                    window.location.href = '../index.html';
+                }
+            } catch (e) {
+                alert('Session error');
+                window.location.href = '../index.html';
+            }
+        } else {
+            alert('Please login first');
+            window.location.href = '../index.html';
+        }
+
+        function getAuthHeaders() {
+            return {
+                'Authorization': 'Bearer ' + (adminUser ? adminUser.api_token : ''),
+                'Content-Type': 'application/json'
+            };
+        }
+
+        async function init() {
+            try {
+                // Fetch companies
+                const res = await fetch(`../api/sync/companies_admin.php`);
+                const data = await res.json();
+                if (data.success && data.data) {
+                    const sel = document.getElementById('companySelect');
+                    sel.innerHTML = '<option value="">-- กรุณาเลือกบริษัท --</option>';
+                    data.data.forEach(c => {
+                        sel.innerHTML += `<option value="${c.id}">[${c.id}] ${c.name}</option>`;
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function loadPrompt() {
+            const cid = document.getElementById('companySelect').value;
+            const editor = document.getElementById('editorSection');
+            if (!cid) {
+                editor.style.display = 'none';
+                return;
+            }
+            editor.style.display = 'block';
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+
+            try {
+                const res = await fetch(`${apiBase}/prompts?company_id=${cid}`, {
+                    headers: getAuthHeaders()
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    currentDefaultPrompt = data.default_prompt || '';
+                    document.getElementById('defaultPrompt').value = currentDefaultPrompt;
+                    document.getElementById('additionalPrompt').value = data.additional_prompt || '';
+                    document.getElementById('maxTokens').value = data.max_tokens || '';
+                } else {
+                    showToast('error', 'โหลดข้อมูลล้มเหลว: ' + data.message);
+                }
+            } catch (e) {
+                showToast('error', 'Network error');
+            }
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+
+        async function savePrompt() {
+            const cid = document.getElementById('companySelect').value;
+            const additionalPrompt = document.getElementById('additionalPrompt').value;
+            const maxTokens = document.getElementById('maxTokens').value;
+
+            if (!cid) return;
+
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            try {
+                const res = await fetch(`${apiBase}/prompts`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        company_id: cid,
+                        additional_prompt: additionalPrompt,
+                        max_tokens: maxTokens
+                    })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    showToast('success', 'บันทึกการตั้งค่าสำเร็จ!');
+                } else {
+                    showToast('error', 'บันทึกล้มเหลว: ' + (data.message || data.error));
+                }
+            } catch (e) {
+                showToast('error', 'Network error');
+            }
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+
+        async function resetPrompt() {
+            const confirmed = await showConfirmModal('ยืนยันการคืนค่า', 'คุณต้องการล้างคำสั่งเพิ่มเติมทั้งหมด และกลับไปใช้ค่า Default ของระบบใช่หรือไม่?');
+            if (confirmed) {
+                document.getElementById('additionalPrompt').value = '';
+                document.getElementById('maxTokens').value = '';
+                showToast('success', 'คืนค่าเริ่มต้นแล้ว (กรุณากดบันทึกเพื่อยืนยัน)');
+            }
+        }
+
+        function previewFinalPrompt() {
+            const additional = document.getElementById('additionalPrompt').value;
+            let final = currentDefaultPrompt;
+            if (additional.trim() !== '') {
+                final += "\n\n=== ADDITIONAL INSTRUCTIONS ===\n" + additional;
+            }
+            
+            final += "\n\nEXTERNAL CONTEXT:\n{ JSON ข้อมูลเพิ่มเติมจากระบบอื่น }\n";
+            final += "\nBUSINESS RULES:\n- กฎข้อที่ 1: ...\n- กฎข้อที่ 2: ...\n";
+            final += "\nTRANSCRIPT:\n{ เนื้อหาบทสนทนาจริง }\n";
+
+            document.getElementById('previewText').textContent = final;
+            document.getElementById('previewModal').classList.remove('hidden');
+        }
+
+        function closePreviewModal() {
+            document.getElementById('previewModal').classList.add('hidden');
+        }
+
+        if (adminUser) init();
+    </script>
+    <script src="components/dialogs.js"></script>
+</body>
+</html>
