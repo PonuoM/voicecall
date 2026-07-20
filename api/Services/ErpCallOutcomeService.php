@@ -90,6 +90,13 @@ class ErpCallOutcomeService
                 'orders' => [],
                 'sold' => false,
                 'returned' => false,
+                // 'logged'   = a CRM entry matched this call
+                // 'unlogged' = no match, but the customer WAS logged around this date (the
+                //              telesale skipped logging this particular call — worth flagging)
+                // 'no_data'  = the customer has no CRM entry anywhere near this date, so we
+                //              genuinely can't tell yet (recording too recent / CRM not synced
+                //              for that window) — must NOT read as "employee failed to log"
+                'crm_coverage' => 'no_data',
             ];
         }
         if (empty($customerIds)) {
@@ -168,6 +175,20 @@ class ErpCallOutcomeService
                     'diff_minutes' => (int) round($bestDiff / 60),
                 ];
                 $result[$key]['sold'] = trim((string) $best['result']) === self::RESULT_SOLD;
+                $result[$key]['crm_coverage'] = 'logged';
+            } else {
+                // No matching entry. Distinguish "the telesale skipped logging this call" from
+                // "the CRM simply has no data for this customer around this date yet" by asking
+                // whether they were logged AT ALL within a day of the call.
+                $daySec = 86400;
+                $hasNearbyLog = false;
+                foreach ($custLogs as $log) {
+                    if (abs(strtotime($log['date']) - $callTs) <= $daySec) {
+                        $hasNearbyLog = true;
+                        break;
+                    }
+                }
+                $result[$key]['crm_coverage'] = $hasNearbyLog ? 'unlogged' : 'no_data';
             }
 
             // Orders placed from the call date onwards, inside the window.

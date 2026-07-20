@@ -363,7 +363,9 @@ async function loadAll() {
             ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">ขายได้</span>'
             : c.call_result
                 ? `<span class="text-[11px] text-slate-600">${esc(c.call_result)}</span>`
-                : '<span class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">สายนี้ไม่ถูกบันทึกใน CRM</span>';
+                : c.crm_coverage === 'unlogged'
+                    ? '<span class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5" title="ลูกค้ารายนี้มีบันทึกการโทรวันนี้ แต่สายนี้ไม่ถูกบันทึก">สายนี้ไม่ถูกบันทึกใน CRM</span>'
+                    : '<span class="text-[10px] text-slate-400" title="ยังไม่มีข้อมูล CRM ของช่วงเวลานี้ (สายอาจใหม่เกินไป หรือ CRM ยังไม่ซิงค์)">ยังไม่มีข้อมูล CRM</span>';
 
         const orderCell = (c.orders || []).length
             ? c.orders.map(o => `<div class="whitespace-nowrap">

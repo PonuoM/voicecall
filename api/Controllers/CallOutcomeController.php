@@ -66,6 +66,7 @@ function handle_call_outcomes(PDO $pdo, PDO $erp, array $currentUser, ?string $i
             'sold' => $o['sold'],
             'returned' => $o['returned'],
             'orders' => $o['orders'],
+            'crm_coverage' => $o['crm_coverage'],
         ];
     }
 

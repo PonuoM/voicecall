@@ -183,6 +183,7 @@ function handle_long_calls(PDO $pdo, PDO $erp, array $currentUser, ?string $id):
         $r['sold'] = $o ? $o['sold'] : false;
         $r['returned'] = $o ? $o['returned'] : false;
         $r['orders'] = $o ? $o['orders'] : [];
+        $r['crm_coverage'] = $o ? $o['crm_coverage'] : 'no_data';
         $calls[] = $r;
     }
 
