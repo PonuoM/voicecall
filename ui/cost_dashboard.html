@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Cost Dashboard - ค่าใช้จ่าย AI</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <div class="max-w-[1200px] mx-auto px-4 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center">
+                <i class="w-5 h-5 text-white" data-lucide="wallet"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold leading-tight">Cost Dashboard — ค่าใช้จ่าย AI (OpenRouter)</h1>
+                <p class="text-[10px] text-slate-500 uppercase tracking-wider" id="lastUpdated">โหลดข้อมูล...</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="../index.html" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="arrow-left"></i> กลับหน้าหลัก
+            </a>
+            <button onclick="loadAll()" class="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="refresh-cw"></i> รีเฟรช
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-[1200px] mx-auto p-4 space-y-4">
+
+    <div id="errorBox" class="hidden bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm"></div>
+
+    <!-- Live spend -->
+    <section>
+        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">💸 การใช้จ่ายจริง (สดจาก OpenRouter)</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">วันนี้</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="usageDaily">—</p>
+                <p class="text-[11px] text-slate-400" id="usageDailyThb"></p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">เดือนนี้</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="usageMonthly">—</p>
+                <p class="text-[11px] text-slate-400" id="usageMonthlyThb"></p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">ใช้ไปทั้งหมด (key นี้)</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="usageTotal">—</p>
+                <p class="text-[11px] text-slate-400" id="usageTotalThb"></p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">เครดิตคงเหลือ (ทั้งบัญชี)</p>
+                <p class="text-2xl font-bold mt-1" id="creditsRemaining">—</p>
+                <p class="text-[11px] text-slate-400" id="creditsDetail"></p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Budget / sampling -->
+    <section>
+        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">🎯 Smart Sampling & Budget</h2>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="flex items-center justify-between mb-2 text-sm">
+                <span class="font-semibold">งบวันนี้: <span id="budgetLabel">—</span></span>
+                <span id="budgetPct" class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">—</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                <div id="budgetBar" class="h-3 rounded-full bg-emerald-500 transition-all" style="width:0%"></div>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-xs text-slate-600">
+                <div><span class="text-slate-400 block">สายที่สุ่มตรวจวันนี้</span><b id="sampledToday">—</b></div>
+                <div><span class="text-slate-400 block">เพดานต่อรอบ cron</span><b id="maxPerRun">—</b></div>
+                <div><span class="text-slate-400 block">ความยาวขั้นต่ำ</span><b id="minDuration">—</b></div>
+                <div><span class="text-slate-400 block">สัดส่วนสุ่มล้วน</span><b id="randomShare">—</b></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Per-call economics -->
+    <section>
+        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">📊 ต้นทุนต่อสาย & ปริมาณ</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">ต้นทุนเฉลี่ย/สาย*</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="avgCost">—</p>
+                <p class="text-[11px] text-slate-400" id="avgCostThb"></p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">วิเคราะห์แล้วทั้งหมด</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="completedTotal">—</p>
+                <p class="text-[11px] text-slate-400">สาย (วันนี้ <span id="completedToday">—</span>)</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">สายเข้าระบบ/วัน</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="volumePerDay">—</p>
+                <p class="text-[11px] text-slate-400">รับสาย (≥40 วิ) <span id="answeredPerDay">—</span>/วัน</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase">ถ้าวิเคราะห์ทุกสาย</p>
+                <p class="text-2xl font-bold text-rose-600 mt-1" id="fullAutoCost">—</p>
+                <p class="text-[11px] text-slate-400">ประมาณการ/เดือน</p>
+            </div>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-1">* ค่าเฉลี่ยจากยอดใช้จ่ายจริงทั้งหมดของ key หารด้วยจำนวนสายที่วิเคราะห์สำเร็จ (รวมงานทดสอบระหว่างพัฒนา จึงเป็นเพดานบน)</p>
+    </section>
+
+    <!-- Daily table -->
+    <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+            <i class="w-4 h-4 text-slate-500" data-lucide="calendar"></i>
+            <h2 class="text-sm font-bold">สายที่วิเคราะห์ย้อนหลัง 14 วัน</h2>
+        </div>
+        <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 text-slate-500 uppercase">
+                <tr>
+                    <th class="px-4 py-2">วันที่</th>
+                    <th class="px-4 py-2 text-right">จำนวนสาย</th>
+                    <th class="px-4 py-2 text-right">นาทีเสียงรวม</th>
+                    <th class="px-4 py-2 text-right">ค่าใช้จ่ายโดยประมาณ</th>
+                </tr>
+            </thead>
+            <tbody id="dailyBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+    </section>
+</main>
+
+<script>
+const API_BASE = '../api/index.php';
+const THB = 33; // แสดงเป็นเงินบาทโดยประมาณ
+let aiToken = null;
+
+(function initSession() {
+    const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
+    if (!raw) {
+        alert('กรุณาเข้าสู่ระบบผ่านหน้าหลักก่อนใช้งานหน้านี้');
+        window.location.href = '../index.html';
+        return;
+    }
+    try { aiToken = (JSON.parse(raw)).api_token || null; } catch (e) { console.error(e); }
+    if (!aiToken) {
+        alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
+        window.location.href = '../index.html';
+    }
+})();
+
+const usd = v => v == null ? '—' : '$' + Number(v).toFixed(v < 1 ? 4 : 2);
+const thb = v => v == null ? '' : '≈ ' + (Number(v) * THB).toLocaleString('th-TH', { maximumFractionDigits: 0 }) + ' บาท';
+
+async function loadAll() {
+    const res = await fetch(`${API_BASE}/cost/summary`, { headers: { 'Authorization': 'Bearer ' + aiToken } });
+    const data = await res.json();
+    const errBox = document.getElementById('errorBox');
+    if (!data.ok) {
+        errBox.textContent = data.message || data.error || 'โหลดข้อมูลไม่สำเร็จ';
+        errBox.classList.remove('hidden');
+        return;
+    }
+    errBox.classList.add('hidden');
+
+    const u = data.openrouter.usage, c = data.openrouter.credits, s = data.sampling, st = data.stats;
+
+    if (data.openrouter.error) {
+        errBox.textContent = 'ดึงข้อมูลจาก OpenRouter ไม่ได้: ' + data.openrouter.error + ' (ตัวเลขจากฐานข้อมูลยังแสดงตามปกติ)';
+        errBox.classList.remove('hidden');
+    }
+
+    if (u) {
+        document.getElementById('usageDaily').textContent = usd(u.usage_daily);
+        document.getElementById('usageDailyThb').textContent = thb(u.usage_daily);
+        document.getElementById('usageMonthly').textContent = usd(u.usage_monthly);
+        document.getElementById('usageMonthlyThb').textContent = thb(u.usage_monthly);
+        document.getElementById('usageTotal').textContent = usd(u.usage);
+        document.getElementById('usageTotalThb').textContent = thb(u.usage);
+    }
+    if (c) {
+        const rem = document.getElementById('creditsRemaining');
+        rem.textContent = usd(c.remaining);
+        rem.className = 'text-2xl font-bold mt-1 ' + (c.remaining < 2 ? 'text-rose-600' : c.remaining < 5 ? 'text-amber-600' : 'text-emerald-600');
+        document.getElementById('creditsDetail').textContent = `เติมแล้ว ${usd(c.total_credits)} · ใช้ไป ${usd(c.total_usage)} (รวมทุกโปรเจคในบัญชี)`;
+    }
+
+    // Budget bar
+    if (u && s) {
+        const pct = Math.min(100, Math.round((u.usage_daily / s.budget_usd_per_day) * 100));
+        document.getElementById('budgetLabel').textContent = `${usd(u.usage_daily)} / ${usd(s.budget_usd_per_day)} (${thb(s.budget_usd_per_day)}/วัน)`;
+        document.getElementById('budgetPct').textContent = pct + '%';
+        const bar = document.getElementById('budgetBar');
+        bar.style.width = pct + '%';
+        bar.className = 'h-3 rounded-full transition-all ' + (pct >= 100 ? 'bg-rose-500' : pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500');
+    }
+    document.getElementById('sampledToday').textContent = s.sampled_today + ' สาย';
+    document.getElementById('maxPerRun').textContent = s.max_calls_per_run + ' สาย/รอบ';
+    document.getElementById('minDuration').textContent = s.min_duration_seconds + ' วินาที';
+    document.getElementById('randomShare').textContent = Math.round(s.random_share * 100) + '%';
+
+    // Per-call economics
+    document.getElementById('avgCost').textContent = usd(st.avg_cost_per_call_usd);
+    document.getElementById('avgCostThb').textContent = thb(st.avg_cost_per_call_usd);
+    document.getElementById('completedTotal').textContent = st.completed_total.toLocaleString();
+    document.getElementById('completedToday').textContent = st.completed_today;
+    document.getElementById('volumePerDay').textContent = st.volume_calls_per_day.toLocaleString();
+    document.getElementById('answeredPerDay').textContent = st.volume_answered_per_day.toLocaleString();
+    if (st.avg_cost_per_call_usd && st.volume_answered_per_day) {
+        const monthly = st.avg_cost_per_call_usd * st.volume_answered_per_day * 30;
+        document.getElementById('fullAutoCost').textContent = '≈ ' + (monthly * THB).toLocaleString('th-TH', { maximumFractionDigits: 0 }) + ' ฿';
+    }
+
+    // Daily table
+    const tbody = document.getElementById('dailyBody');
+    tbody.innerHTML = '';
+    (data.daily || []).forEach(d => {
+        const est = st.avg_cost_per_call_usd ? d.calls * st.avg_cost_per_call_usd : null;
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50';
+        tr.innerHTML = `
+            <td class="px-4 py-2 font-medium">${d.day}</td>
+            <td class="px-4 py-2 text-right">${d.calls}</td>
+            <td class="px-4 py-2 text-right">${d.minutes ?? '-'}</td>
+            <td class="px-4 py-2 text-right">${est ? usd(est) + ' <span class="text-slate-400">' + thb(est) + '</span>' : '-'}</td>`;
+        tbody.appendChild(tr);
+    });
+    if (!(data.daily || []).length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">ยังไม่มีข้อมูล</td></tr>';
+    }
+
+    document.getElementById('lastUpdated').textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH');
+}
+
+loadAll().catch(e => {
+    const errBox = document.getElementById('errorBox');
+    errBox.textContent = 'เกิดข้อผิดพลาด: ' + e.message;
+    errBox.classList.remove('hidden');
+});
+lucide.createIcons();
+</script>
+</body>
+</html>

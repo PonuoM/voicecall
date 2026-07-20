@@ -192,6 +192,60 @@ class OpenRouterClient
         return is_array($decoded) ? $decoded : null;
     }
 
+    /**
+     * Account/key usage from GET /key: usage (all-time USD for this key), usage_daily,
+     * usage_weekly, usage_monthly. Powers the cost dashboard and the smart-sampling
+     * budget guard (usage_daily resets at UTC midnight — ~07:00 Thai time).
+     * @return array{usage:float,usage_daily:float,usage_weekly:float,usage_monthly:float}
+     */
+    public static function keyUsage(): array
+    {
+        $data = self::requestGet('/key')['data'] ?? [];
+        return [
+            'usage' => (float) ($data['usage'] ?? 0),
+            'usage_daily' => (float) ($data['usage_daily'] ?? 0),
+            'usage_weekly' => (float) ($data['usage_weekly'] ?? 0),
+            'usage_monthly' => (float) ($data['usage_monthly'] ?? 0),
+        ];
+    }
+
+    /**
+     * Account-wide credit balance from GET /credits (shared across every key on the account).
+     * @return array{total_credits:float,total_usage:float,remaining:float}
+     */
+    public static function credits(): array
+    {
+        $data = self::requestGet('/credits')['data'] ?? [];
+        $total = (float) ($data['total_credits'] ?? 0);
+        $used = (float) ($data['total_usage'] ?? 0);
+        return ['total_credits' => $total, 'total_usage' => $used, 'remaining' => $total - $used];
+    }
+
+    private static function requestGet(string $path, int $timeoutSeconds = 30): array
+    {
+        $ch = curl_init(OPENROUTER_BASE_URL . $path);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $timeoutSeconds,
+            CURLOPT_CAINFO => __DIR__ . '/../certs/cacert.pem',
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . OPENROUTER_API_KEY],
+        ]);
+        $body = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false) {
+            throw new RuntimeException('OpenRouter request failed: ' . $curlError);
+        }
+        $decoded = json_decode($body, true);
+        if ($httpCode >= 400) {
+            $message = $decoded['error']['message'] ?? $body;
+            throw new RuntimeException("OpenRouter API error ({$httpCode}): {$message}");
+        }
+        return is_array($decoded) ? $decoded : [];
+    }
+
     private static function request(string $path, array $payload, int $timeoutSeconds = 120): array
     {
         $ch = curl_init(OPENROUTER_BASE_URL . $path);

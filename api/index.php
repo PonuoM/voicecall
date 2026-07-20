@@ -19,6 +19,11 @@ try {
             handle_fraud($pdo, $currentUser, $id, $action);
             break;
 
+        case 'cost':
+            require_once __DIR__ . '/Controllers/CostController.php';
+            handle_cost($pdo, $currentUser, $id, $action);
+            break;
+
         case 'assistant':
             require_once __DIR__ . '/Controllers/AssistantController.php';
             handle_assistant($pdo, $currentUser, $id, $action);

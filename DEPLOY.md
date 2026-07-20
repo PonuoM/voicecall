@@ -60,6 +60,13 @@ OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
 
 GDRIVE_API_KEY=AIzaSyCCIywRsoHuBzVTm-B-FA8N7VzAcECIEBE
 GDRIVE_ROOT_FOLDER_ID=135GAP4FYM7b7LwVaVwdBHPFYUwn7T5rx
+
+# --- Optional: smart sampling (cron/smart_sampling.php) ---
+# ค่า default อยู่ใน api/config.php แล้ว ใส่เฉพาะตัวที่อยากเปลี่ยน
+# SAMPLING_BUDGET_USD_PER_DAY=1.5     # เพดานงบ/วัน (USD) — guard เช็คสดจาก OpenRouter ก่อนทุกสาย
+# SAMPLING_MAX_CALLS_PER_RUN=15       # จำนวนสายสูงสุดต่อรอบ cron
+# SAMPLING_MIN_DURATION_SECONDS=40    # ข้ามสายสั้นกว่านี้ (40s = เกณฑ์ "รับสาย" ของ ERP)
+# SAMPLING_RANDOM_SHARE=0.3           # สัดส่วน slot ที่สงวนให้สุ่มล้วน (ที่เหลือ = risk-first)
 ```
 
 (ค่า `ERP_DB_*` / `GDRIVE_*` ใช้ค่าเดิมได้เลย ไม่ใช่ความลับระดับสูง — เป็น key เดิมที่ฝังอยู่ใน
