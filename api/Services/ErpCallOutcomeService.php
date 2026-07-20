@@ -162,6 +162,10 @@ class ErpCallOutcomeService
                     'order_status' => $o['order_status'],
                     'payment_status' => $o['payment_status'],
                     'is_returned' => $returned,
+                    // How long after the call the order was keyed. 0 = same day (strong link);
+                    // anything further is only "this customer ordered soon after we called", which
+                    // the reader has to weigh — so it is always shown, never implied.
+                    'days_after' => (int) floor(($ots - $from) / 86400),
                 ];
                 if ($returned) {
                     $result[$key]['returned'] = true;

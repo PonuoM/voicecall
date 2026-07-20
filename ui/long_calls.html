@@ -370,6 +370,9 @@ async function loadAll() {
                     <span class="font-mono text-[10px]">${esc(o.id)}</span>
                     <span class="text-[10px] font-bold px-1 py-0.5 rounded ${o.is_returned ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}">${esc(o.order_status)}</span>
                     <span class="text-[10px] text-slate-400">${Number(o.total_amount).toLocaleString()}฿</span>
+                    ${o.days_after > 0
+                        ? `<span class="text-[10px] text-amber-600" title="เปิดออเดอร์หลังโทร ${o.days_after} วัน — อาจไม่ได้มาจากสายนี้">+${o.days_after} วัน</span>`
+                        : '<span class="text-[10px] text-emerald-600" title="เปิดออเดอร์วันเดียวกับที่โทร">วันเดียวกัน</span>'}
                 </div>`).join('')
             : '<span class="text-[11px] text-slate-300">—</span>';
 

@@ -29,6 +29,11 @@ try {
             handle_long_calls($pdo, erp(), $currentUser, $id);
             break;
 
+        case 'call-outcomes':
+            require_once __DIR__ . '/Controllers/CallOutcomeController.php';
+            handle_call_outcomes($pdo, erp(), $currentUser, $id);
+            break;
+
         case 'assistant':
             require_once __DIR__ . '/Controllers/AssistantController.php';
             handle_assistant($pdo, $currentUser, $id, $action);

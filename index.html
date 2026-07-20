@@ -286,6 +286,7 @@
                         <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('receiver')">สายรับ (Receiver) <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
                         <th class="px-4 py-3 cursor-pointer hover:text-sky-600 text-right" onclick="sortBy('size')">ขนาด <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
                         <th class="px-4 py-3 cursor-pointer hover:text-sky-600 text-right" onclick="sortBy('duration')">ระยะเวลา <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
+                        <th class="px-4 py-3">ผลขาย / ออเดอร์ (ERP)</th>
                         <th class="px-4 py-3 text-right">เล่น</th>
                         <th class="px-4 py-3 text-center">ดาวน์โหลด</th>
                         <th class="px-4 py-3 text-center">ลิงก์</th>
@@ -1148,7 +1149,7 @@ function renderTable() {
     document.getElementById('pageInfo').textContent = `หน้า ${currentPage} / ${totalPages}`;
     document.getElementById('filteredCount').textContent = filtered.length===allData.length ? '' : `กรอง ${filtered.length.toLocaleString()} จาก ${allData.length.toLocaleString()}`;
     let html = '';
-    if (!page.length) html = '<tr><td colspan="12" class="px-4 py-12 text-center text-slate-400"><div class="flex flex-col items-center gap-2"><i class="w-12 h-12 text-slate-200" data-lucide="search-x"></i><span>ไม่พบรายการ</span></div></td></tr>';
+    if (!page.length) html = '<tr><td colspan="13" class="px-4 py-12 text-center text-slate-400"><div class="flex flex-col items-center gap-2"><i class="w-12 h-12 text-slate-200" data-lucide="search-x"></i><span>ไม่พบรายการ</span></div></td></tr>';
     for (const r of page) {
         const uid = r.id+r.date+r.time, isP = currentPlayingId===uid;
         const aiCell = renderAiCell(uid, r);
@@ -1162,9 +1163,13 @@ function renderTable() {
             <td class="px-4 py-3"><div class="flex flex-col"><span class="text-slate-700 font-medium">${formatDate(r.date)}</span><span class="text-xs text-slate-400 font-mono">${r.time}</span></div></td>
             <td class="px-4 py-3 font-mono text-slate-600 text-xs">${formatPhone(r.caller)}</td>
             <td class="px-4 py-3 text-center">${dir}</td>
-            <td class="px-4 py-3 font-mono text-slate-600 text-xs">${formatPhone(r.receiver)}</td>
+            <td class="px-4 py-3 font-mono text-slate-600 text-xs">
+                ${formatPhone(r.receiver)}
+                ${r.fileId ? `<div class="text-[11px] text-slate-400 font-sans" data-cust="${r.fileId}"></div>` : ''}
+            </td>
             <td class="px-4 py-3 text-right text-xs text-slate-400">${formatSize(r.size)}</td>
             <td class="px-4 py-3 text-right text-xs text-slate-500 font-mono">${formatDuration(r)}</td>
+            <td class="px-4 py-3 text-xs" ${r.fileId ? `data-outcome="${r.fileId}"` : ''}>${r.fileId ? '<span class="text-slate-300">…</span>' : '<span class="text-slate-300">-</span>'}</td>
             <td class="px-4 py-3 text-right">
                 <button onclick='playAudio(${pd})' class="p-1.5 ${isP?'bg-sky-600 text-white':'text-sky-600 hover:bg-sky-100'} rounded-lg transition-all" title="เล่น">
                     <i class="w-5 h-5" data-lucide="${isP?'pause-circle':'play-circle'}"></i>
@@ -1183,6 +1188,65 @@ function renderTable() {
             <td class="px-4 py-3 text-center">${aiCell}</td></tr>`;
     }
     tbody.innerHTML = html; lucide.createIcons();
+    loadOutcomesForPage(page);
+}
+
+// ===== ERP outcome column =====
+// Enriching all rows up front isn't viable (a company can hold 130k recordings), so outcomes are
+// fetched only for the rows currently on screen, once per page render, and cached for the session.
+const outcomeCache = {};
+let outcomeRequestSeq = 0;
+
+async function loadOutcomesForPage(page) {
+    if (!aiToken) return;
+    const ids = page.map(r => r.fileId).filter(Boolean);
+    if (!ids.length) return;
+
+    const seq = ++outcomeRequestSeq;
+    const missing = ids.filter(id => !(id in outcomeCache));
+    if (missing.length) {
+        try {
+            const res = await fetch(`${CONFIG.AI_API_URL}/call-outcomes?ids=${encodeURIComponent(missing.join(','))}`, { headers: aiHeaders() });
+            const data = await res.json();
+            if (!data.ok) return;
+            // Remember misses too, so a recording with no ERP match isn't re-requested every render.
+            missing.forEach(id => { outcomeCache[id] = data.data[id] || null; });
+        } catch (e) {
+            return; // the column simply stays blank; the dashboard itself is unaffected
+        }
+    }
+    if (seq !== outcomeRequestSeq) return; // a newer page render already superseded this one
+    ids.forEach(id => paintOutcome(id, outcomeCache[id]));
+}
+
+function paintOutcome(fileId, o) {
+    const cell = document.querySelector(`[data-outcome="${fileId}"]`);
+    const custCell = document.querySelector(`[data-cust="${fileId}"]`);
+    if (custCell) custCell.textContent = (o && o.customer_name) ? o.customer_name : '';
+    if (!cell) return;
+
+    if (!o) { cell.innerHTML = '<span class="text-slate-300">-</span>'; return; }
+
+    const result = o.sold
+        ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">ขายได้</span>'
+        : o.call_result
+            ? `<span class="text-[11px] text-slate-600">${escapeHtml(o.call_result)}</span>`
+            : '<span class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">ไม่มีบันทึกใน CRM</span>';
+
+    const orders = (o.orders || []).map(x => `<div class="whitespace-nowrap mt-0.5">
+            <span class="font-mono text-[10px]">${escapeHtml(x.id)}</span>
+            <span class="text-[10px] font-bold px-1 py-0.5 rounded ${x.is_returned ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}">${escapeHtml(x.order_status)}</span>
+            <span class="text-[10px] text-slate-400">${Number(x.total_amount).toLocaleString()}฿</span>
+            ${x.days_after > 0
+                ? `<span class="text-[10px] text-amber-600" title="เปิดออเดอร์หลังโทร ${x.days_after} วัน — อาจไม่ได้มาจากสายนี้">+${x.days_after} วัน</span>`
+                : '<span class="text-[10px] text-emerald-600" title="เปิดออเดอร์วันเดียวกับที่โทร">วันเดียวกัน</span>'}
+        </div>`).join('');
+
+    cell.innerHTML = result + orders;
+}
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // ===== AI Pipeline =====
