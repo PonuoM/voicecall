@@ -34,6 +34,11 @@ try {
             handle_call_outcomes($pdo, erp(), $currentUser, $id);
             break;
 
+        case 'ghost-numbers':
+            require_once __DIR__ . '/Controllers/GhostNumberController.php';
+            handle_ghost_numbers($pdo, erp(), $currentUser, $id);
+            break;
+
         case 'assistant':
             require_once __DIR__ . '/Controllers/AssistantController.php';
             handle_assistant($pdo, $currentUser, $id, $action);

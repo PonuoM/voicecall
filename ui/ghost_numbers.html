@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>เบอร์ต้องสงสัย - Ghost Numbers</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <div class="max-w-[1400px] mx-auto px-4 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center">
+                <i class="w-5 h-5 text-white" data-lucide="user-x"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold leading-tight">เบอร์ต้องสงสัย — โทรหาเบอร์ที่ไม่มีในระบบซ้ำๆ</h1>
+                <p class="text-[10px] text-slate-500 uppercase tracking-wider" id="subTitle">Ghost Number Report</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="../index.html" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="arrow-left"></i> กลับหน้าหลัก
+            </a>
+            <button onclick="loadAll()" class="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                <i class="w-4 h-4" data-lucide="refresh-cw"></i> รีเฟรช
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-[1400px] mx-auto p-4 space-y-4">
+
+    <div id="errorBox" class="hidden bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm"></div>
+
+    <!-- Explainer -->
+    <section class="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-900">
+        <b>วิธีอ่านหน้านี้:</b> ตรวจเบอร์ที่พนักงาน<b>โทรซ้ำหลายครั้ง</b>แต่<b>ไม่เคยเป็นลูกค้าในระบบเลย</b> (ไม่ใช่แค่สายเดียว —
+        โทรครั้งเดียวหาเบอร์ใหม่เป็นเรื่องปกติของการหาลูกค้า) เบอร์ที่ยิ่งโทรบ่อย ยิ่งกินเวลานาน ยิ่งกระจายหลายวัน/หลายเดือน
+        ยิ่งน่าสงสัยว่าเป็นเบอร์ส่วนตัว/คนรู้จักที่โทรไว้ปั่น talk time — <b>ไม่ใช่หลักฐานยืนยัน 100%</b> อาจเป็นลูกค้าเก่าที่ยังไม่ได้ลงระบบ
+        หรือ supplier/ผู้ติดต่องานก็ได้ ควรฟังไฟล์เสียงประกอบก่อนตัดสินใจ
+    </section>
+
+    <!-- Filters -->
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+        <div class="flex flex-wrap items-end gap-3">
+            <div class="w-56">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">บริษัท</label>
+                <select id="companyFilter" onchange="loadAll()" class="form-select w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-purple-500">
+                    <option value="">กำลังโหลด...</option>
+                </select>
+            </div>
+            <div class="w-40">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">จากวันที่</label>
+                <input id="dateFrom" type="date" onchange="loadAll()" class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-purple-500" />
+            </div>
+            <div class="w-40">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ถึงวันที่</label>
+                <input id="dateTo" type="date" onchange="loadAll()" class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-purple-500" />
+            </div>
+            <p class="text-[11px] text-slate-400 pb-2">ค่าเริ่มต้น: ย้อนหลัง 90 วัน (pattern แบบนี้มักใช้เวลาหลายเดือนกว่าจะเห็นชัด)</p>
+            <button onclick="resetFilters()" class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 ml-auto">
+                <i class="w-4 h-4" data-lucide="rotate-ccw"></i> รีเซ็ต
+            </button>
+        </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-white rounded-xl border border-slate-200 p-3">
+            <p class="text-[11px] font-semibold text-slate-500 uppercase">สายที่สแกน</p>
+            <p class="text-xl font-bold text-slate-800 mt-1" id="sCalls">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-3">
+            <p class="text-[11px] font-semibold text-slate-500 uppercase">สายหาเบอร์ไม่รู้จัก</p>
+            <p class="text-xl font-bold text-slate-800 mt-1" id="sUnknown">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-purple-200 bg-purple-50/40 p-3">
+            <p class="text-[11px] font-semibold text-purple-700 uppercase">คู่ที่ถูก flag</p>
+            <p class="text-xl font-bold text-purple-700 mt-1" id="sFlagged">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-rose-200 bg-rose-50/40 p-3">
+            <p class="text-[11px] font-semibold text-rose-700 uppercase">ระดับ Critical</p>
+            <p class="text-xl font-bold text-rose-700 mt-1" id="sCritical">—</p>
+        </div>
+    </section>
+
+    <!-- Table -->
+    <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+            <i class="w-4 h-4 text-slate-500" data-lucide="list"></i>
+            <h2 class="text-sm font-bold flex-1">อันดับเบอร์ต้องสงสัย <span id="listCount" class="text-slate-400 font-normal"></span></h2>
+            <select id="filterRisk" onchange="renderTable()" class="form-select rounded-lg border-slate-200 text-xs py-1">
+                <option value="">ทุกระดับ</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+            </select>
+        </div>
+        <div class="overflow-x-auto max-h-[70vh] overflow-y-auto">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
+                    <tr>
+                        <th class="px-3 py-2">ระดับ</th>
+                        <th class="px-3 py-2">พนักงาน</th>
+                        <th class="px-3 py-2">เบอร์ที่ไม่รู้จัก</th>
+                        <th class="px-2 py-2 text-center">จำนวนครั้ง</th>
+                        <th class="px-2 py-2 text-center">กระจายกี่วัน</th>
+                        <th class="px-2 py-2 text-right">รวมเวลา</th>
+                        <th class="px-2 py-2 text-right">ยาวสุด</th>
+                        <th class="px-3 py-2">ช่วงที่พบ</th>
+                        <th class="px-3 py-2 text-center">ฟังสาย</th>
+                    </tr>
+                </thead>
+                <tbody id="pairBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<script>
+const API_BASE = '../api/index.php';
+let aiToken = null;
+let currentUser = null;
+let lastData = null;
+
+(function initSession() {
+    const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
+    if (!raw) {
+        alert('กรุณาเข้าสู่ระบบผ่านหน้าหลักก่อนใช้งานหน้านี้');
+        window.location.href = '../index.html';
+        return;
+    }
+    try {
+        currentUser = JSON.parse(raw);
+        aiToken = currentUser.api_token || null;
+    } catch (e) { console.error(e); }
+    if (!aiToken) {
+        alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
+        window.location.href = '../index.html';
+    }
+})();
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtPhone = p => { const d = String(p || '').replace(/\D/g, ''); return d.length === 10 ? `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}` : (p || '-'); };
+const RISK_BADGE = {
+    critical: 'bg-rose-100 text-rose-700 border border-rose-200',
+    high:     'bg-orange-100 text-orange-700 border border-orange-200',
+    medium:   'bg-amber-100 text-amber-700 border border-amber-200',
+    low:      'bg-slate-100 text-slate-600 border border-slate-200',
+};
+
+async function loadCompanies() {
+    const select = document.getElementById('companyFilter');
+    try {
+        const res = await fetch('../api/sync/companies_admin.php');
+        const data = await res.json();
+        let companies = (data.success && data.data) ? data.data : [];
+        if (currentUser && !currentUser.is_super_admin) {
+            companies = companies.filter(c => Number(c.id) === Number(currentUser.company_id));
+        }
+        select.innerHTML = companies.map(c => `<option value="${c.id}">${esc(c.name)} (ID ${c.id})</option>`).join('')
+            || `<option value="${currentUser?.company_id || ''}">Company ${currentUser?.company_id || '?'}</option>`;
+        if (currentUser?.company_id && companies.some(c => Number(c.id) === Number(currentUser.company_id))) {
+            select.value = currentUser.company_id;
+        }
+    } catch (e) {
+        select.innerHTML = `<option value="${currentUser?.company_id || ''}">Company ${currentUser?.company_id || '?'}</option>`;
+    }
+}
+
+function resetFilters() {
+    document.getElementById('dateFrom').value = '';
+    document.getElementById('dateTo').value = '';
+    loadAll();
+}
+
+async function loadAll() {
+    const companyId = document.getElementById('companyFilter').value;
+    if (!companyId) return;
+
+    const params = new URLSearchParams({ company_id: companyId });
+    const from = document.getElementById('dateFrom').value;
+    const to = document.getElementById('dateTo').value;
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+
+    const errBox = document.getElementById('errorBox');
+    document.getElementById('pairBody').innerHTML = '<tr><td colspan="9" class="px-3 py-8 text-center text-slate-400">กำลังสแกน... (อาจใช้เวลาสักครู่ เพราะดูข้อมูลย้อนหลังหลายเดือน)</td></tr>';
+
+    try {
+        const res = await fetch(`${API_BASE}/ghost-numbers?${params}`, { headers: { 'Authorization': 'Bearer ' + aiToken } });
+        const data = await res.json();
+        if (!data.ok) {
+            errBox.textContent = data.message || data.error || 'โหลดข้อมูลไม่สำเร็จ';
+            errBox.classList.remove('hidden');
+            document.getElementById('pairBody').innerHTML = '';
+            return;
+        }
+        errBox.classList.add('hidden');
+        lastData = data;
+        document.getElementById('subTitle').textContent = `ช่วงข้อมูล ${data.from} ถึง ${data.to}`;
+
+        const t = data.totals || {};
+        document.getElementById('sCalls').textContent = Number(t.calls_scanned || 0).toLocaleString();
+        document.getElementById('sUnknown').textContent = Number(t.unknown_number_calls || 0).toLocaleString();
+        document.getElementById('sFlagged').textContent = Number(t.flagged_pairs || 0).toLocaleString();
+        document.getElementById('sCritical').textContent = (data.pairs || []).filter(p => p.risk_level === 'critical').length;
+
+        renderTable();
+    } catch (e) {
+        errBox.textContent = 'เกิดข้อผิดพลาด: ' + e.message;
+        errBox.classList.remove('hidden');
+    }
+}
+
+function renderTable() {
+    if (!lastData) return;
+    const riskFilter = document.getElementById('filterRisk').value;
+    const pairs = (lastData.pairs || []).filter(p => !riskFilter || p.risk_level === riskFilter);
+
+    const tbody = document.getElementById('pairBody');
+    tbody.innerHTML = '';
+    pairs.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50 fade-in';
+        tr.innerHTML = `
+            <td class="px-3 py-2"><span class="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${RISK_BADGE[p.risk_level] || RISK_BADGE.low}">${p.risk_level}</span></td>
+            <td class="px-3 py-2 font-medium">${esc(p.employee_name)}</td>
+            <td class="px-3 py-2">
+                <code class="font-mono">${fmtPhone(p.number)}</code>
+                ${p.other_company_customer ? `<div class="text-[10px] text-sky-600 mt-0.5">เป็นลูกค้าของบริษัท "${esc(p.other_company_customer)}"</div>` : ''}
+            </td>
+            <td class="px-2 py-2 text-center font-bold">${p.calls}</td>
+            <td class="px-2 py-2 text-center">${p.distinct_days}</td>
+            <td class="px-2 py-2 text-right font-semibold">${p.total_hours} ชม.</td>
+            <td class="px-2 py-2 text-right">${p.max_minutes} น.</td>
+            <td class="px-3 py-2 text-[11px] text-slate-500 whitespace-nowrap">${esc(p.first_seen)} — ${esc(p.last_seen)}</td>
+            <td class="px-3 py-2 text-center">
+                <a href="../index.html?search=${encodeURIComponent(p.number)}" target="_blank"
+                   class="inline-flex items-center gap-1 text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 px-2 py-1 rounded-lg font-medium">
+                    ดูสาย
+                </a>
+            </td>`;
+        tbody.appendChild(tr);
+    });
+    if (!pairs.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="px-3 py-8 text-center text-slate-400">ไม่พบเบอร์ต้องสงสัยตามเงื่อนไขนี้ 🎉</td></tr>';
+    }
+    document.getElementById('listCount').textContent = `(${pairs.length} รายการ)`;
+    lucide.createIcons();
+}
+
+(async function init() {
+    await loadCompanies();
+    await loadAll();
+    lucide.createIcons();
+})().catch(e => {
+    const errBox = document.getElementById('errorBox');
+    errBox.textContent = 'เกิดข้อผิดพลาด: ' + e.message;
+    errBox.classList.remove('hidden');
+});
+</script>
+</body>
+</html>

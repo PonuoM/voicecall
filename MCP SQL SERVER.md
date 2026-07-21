@@ -370,6 +370,12 @@ $conn->set_charset("utf8mb4");
   `FraudCheckService` เทียบกับ `primacom_mini_erp.bank_account` — ทุก row เป็น "รายการให้คน
   ยืนยัน" (`review_status`) ไม่ใช่ข้อกล่าวหาอัตโนมัติ ดูผ่าน `ui/fraud_dashboard.html` หรือ
   API `GET /api/index.php/fraud`
+- 👻 **เบอร์ต้องสงสัย (Ghost Number)**: ตรวจพนักงานโทรซ้ำหาเบอร์ที่**ไม่ใช่ลูกค้าและไม่ใช่พนักงานคนไหนเลย
+  ในทั้ง ERP** — สัญญาณของการโทรเข้าเบอร์ส่วนตัว/คนรู้จักเพื่อปั่น talk time คำนวณสดจาก
+  `gdrive_file_index` เทียบกับ `customers`+`users` ล้วนๆ ไม่ใช้ AI (`GhostNumberService`,
+  หน้า `ui/ghost_numbers.html`) — เคสจริงที่ยืนยันแล้ว: พนักงานคนหนึ่งโทรเบอร์เดิมซ้ำ 7 ครั้ง
+  กระจาย 4 เดือน รวม 3.5 ชม. เบอร์นั้นไม่เคยเป็นลูกค้าเลยจนถึงปัจจุบัน สายเดียวหาเบอร์ใหม่ถือว่า
+  ปกติ (หาลูกค้าใหม่) — สัญญาณคือการโทร**ซ้ำ**เบอร์เดิมหลายครั้ง/หลายวัน
 - `fraud_checks.check_type` มี 3 ประเภท: `payment_channel` (ตรวจตอน pipeline รัน),
   `missing_order` + `price_mismatch` (ตรวจย้อนหลังโดย `api/cron/fraud_order_check.php` —
   ต้องรอ GRACE_DAYS=2 วันหลังโทร เพราะ order อาจถูกคีย์ทีหลัง; เทียบกับ
