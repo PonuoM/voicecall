@@ -992,8 +992,21 @@ function updateStats(data) {
 
 function debounceSearch() { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(handleSearch, 300); }
 
+// Recordings store phone numbers as E.164 ("+66822469246" — the leading 0 is replaced by 66,
+// not just prefixed), but people search in local format ("0822469246", per the field's own
+// placeholder). A plain substring match against the raw field can never find that: the digit "0"
+// literally does not appear anywhere in the E.164 string. Expand each number to both forms so a
+// search matches regardless of which one the user types.
+function phoneSearchVariants(p) {
+    const d = String(p || '').replace(/\D/g, '');
+    if (!d) return '';
+    if (d.startsWith('66') && d.length >= 11) return d + ' 0' + d.slice(2);
+    if (d.startsWith('0')) return d + ' 66' + d.slice(1);
+    return d;
+}
+
 function handleSearch() {
-    const q = (document.getElementById('globalSearch').value + ' ' + document.getElementById('phoneSearch').value).trim().toLowerCase();
+    const q = (document.getElementById('globalSearch').value + ' ' + document.getElementById('phoneSearch').value).trim().toLowerCase().replace(/\+/g, '');
     const dir = document.getElementById('dirFilter').value;
     const dateFrom = document.getElementById('dateFrom')?.value || '';
     const dateTo = document.getElementById('dateTo')?.value || '';
@@ -1001,7 +1014,7 @@ function handleSearch() {
     // since we can't prove they qualify.
     const minDurationSec = (parseFloat(document.getElementById('minDuration')?.value) || 0) * 60;
     filtered = allData.filter(r => {
-        if (q) { const s = (r.caller+' '+r.receiver+' '+r.id+' '+r.filename).toLowerCase(); if (!q.split(/\s+/).every(t=>s.includes(t))) return false; }
+        if (q) { const s = (phoneSearchVariants(r.caller)+' '+phoneSearchVariants(r.receiver)+' '+r.caller+' '+r.receiver+' '+r.id+' '+r.filename).toLowerCase(); if (!q.split(/\s+/).every(t=>s.includes(t))) return false; }
         if (dir && r.direction !== dir) return false;
         if (dateFrom && r.date < dateFrom) return false;
         if (dateTo && r.date > dateTo) return false;
