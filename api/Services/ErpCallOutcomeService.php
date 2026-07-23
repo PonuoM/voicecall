@@ -97,6 +97,10 @@ class ErpCallOutcomeService
                 //              genuinely can't tell yet (recording too recent / CRM not synced
                 //              for that window) — must NOT read as "employee failed to log"
                 'crm_coverage' => 'no_data',
+                // Set only when crm_coverage = 'unlogged' — timestamp of the nearest OTHER CRM
+                // entry for this customer that same day, so the UI can show what got logged
+                // instead of this call.
+                'nearby_log_at' => null,
             ];
         }
         if (empty($customerIds)) {
@@ -179,16 +183,26 @@ class ErpCallOutcomeService
             } else {
                 // No matching entry. Distinguish "the telesale skipped logging this call" from
                 // "the CRM simply has no data for this customer around this date yet" by asking
-                // whether they were logged AT ALL within a day of the call.
+                // whether they were logged AT ALL within a day of the call. When there is a nearby
+                // log, surface its timestamp too — otherwise "not recorded in CRM" reads as "this
+                // customer has no CRM data at all", when what actually happened is a DIFFERENT
+                // contact that same day got logged instead of this one.
                 $daySec = 86400;
-                $hasNearbyLog = false;
+                $nearbyLog = null;
+                $nearbyDiff = null;
                 foreach ($custLogs as $log) {
-                    if (abs(strtotime($log['date']) - $callTs) <= $daySec) {
-                        $hasNearbyLog = true;
-                        break;
+                    $diff = abs(strtotime($log['date']) - $callTs);
+                    if ($diff <= $daySec && ($nearbyDiff === null || $diff < $nearbyDiff)) {
+                        $nearbyDiff = $diff;
+                        $nearbyLog = $log;
                     }
                 }
-                $result[$key]['crm_coverage'] = $hasNearbyLog ? 'unlogged' : 'no_data';
+                if ($nearbyLog) {
+                    $result[$key]['crm_coverage'] = 'unlogged';
+                    $result[$key]['nearby_log_at'] = $nearbyLog['date'];
+                } else {
+                    $result[$key]['crm_coverage'] = 'no_data';
+                }
             }
 
             // Orders placed from the call date onwards, inside the window.

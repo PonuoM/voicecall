@@ -12,6 +12,13 @@ class ConversationPipeline
 {
     public static function run(PDO $pdo, PDO $erp, int $conversationId): array
     {
+        // config.php's 300s default is a lightweight-request safety net, not a budget for this
+        // pipeline - a single long call (e.g. 27 min) can legitimately need the STT step alone to
+        // run longer than that (see the scaled timeout in OpenRouterClient::transcribeViaChatAudio).
+        // This is a user-initiated, one-conversation action, so letting it run as long as it
+        // genuinely needs is the right tradeoff (same reasoning the cron scripts already use).
+        set_time_limit(0);
+
         $conversation = self::loadConversation($pdo, $conversationId);
 
         try {

@@ -130,12 +130,23 @@ class OpenRouterClient
             ]],
         ];
 
-        $response = self::request('/chat/completions', $payload, 300);
+        // A flat timeout doesn't scale with what we're asking the model to do: a 27-minute call
+        // timed out at exactly the old flat 300s with only 7KB back (real production failure,
+        // conversation id 22, 2026-07-21) - the model needs processing time proportional to audio
+        // length, not a one-size-fits-all ceiling tuned for short telesales calls. Floor covers
+        // normal latency for short calls; cap keeps a genuinely stuck request from hanging the
+        // whole pipeline indefinitely.
+        $duration = self::wavDurationSeconds($audioFilePath);
+        $timeoutSeconds = $duration !== null
+            ? (int) max(180, min(900, 120 + $duration * 1.5))
+            : 300;
+
+        $response = self::request('/chat/completions', $payload, $timeoutSeconds);
         $text = $response['choices'][0]['message']['content'] ?? '';
 
         return [
             'text' => trim($text),
-            'duration' => self::wavDurationSeconds($audioFilePath),
+            'duration' => $duration,
         ];
     }
 
