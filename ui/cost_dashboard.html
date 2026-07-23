@@ -4,142 +4,188 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Cost Dashboard - ค่าใช้จ่าย AI</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/theme.css?v=11" />
     <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-    </style>
+    <script>
+        // Pre-paint theme: apply saved theme before first render, so navigating between pages
+        // doesn't flash light before switching to the saved dark (or vice versa).
+        try {
+            var t = localStorage.getItem('vc-theme');
+            if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+    </script>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body>
 
-<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
-    <div class="max-w-[1200px] mx-auto px-4 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <div class="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center">
-                <i class="w-5 h-5 text-white" data-lucide="wallet"></i>
-            </div>
-            <div>
-                <h1 class="text-sm font-bold leading-tight">Cost Dashboard — ค่าใช้จ่าย AI (OpenRouter)</h1>
-                <p class="text-[10px] text-slate-500 uppercase tracking-wider" id="lastUpdated">โหลดข้อมูล...</p>
-            </div>
+<div class="shell">
+<aside class="rail" id="rail">
+    <div class="rail-brand">
+        <div class="rail-mark"><i data-lucide="audio-lines"></i></div>
+        <div class="txt"><div class="name">Audit Rec<span class="rec-dot"></span></div></div>
+        <button class="rail-toggle" id="railCollapseBtn" title="หุบ/ขยายเมนู" aria-label="หุบ/ขยายเมนู">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        </button>
+    </div>
+    <div class="rail-group-label">ข้อมูลสาย</div>
+    <nav>
+        <a href="../index.html" class="rail-item"><i data-lucide="phone"></i><span class="lbl">รายการสาย</span></a>
+        <a href="sync_dashboard.html" class="rail-item"><i data-lucide="refresh-cw"></i><span class="lbl">Sync ไฟล์เสียง</span></a>
+        <a href="fraud_dashboard.html" class="rail-item"><i data-lucide="shield-alert"></i><span class="lbl">ตรวจทุจริต</span></a>
+        <a href="long_calls.html" class="rail-item"><i data-lucide="timer"></i><span class="lbl">สายยาวผิดปกติ</span></a>
+        <a href="ghost_numbers.html" class="rail-item"><i data-lucide="user-x"></i><span class="lbl">เบอร์ต้องสงสัย</span></a>
+    </nav>
+    <div class="rail-group-label">ระบบ</div>
+    <nav>
+        <a href="cost_dashboard.html" class="rail-item active"><i data-lucide="wallet"></i><span class="lbl">Cost</span></a>
+        <a href="super_admin_companies.html" class="rail-item"><i data-lucide="settings"></i><span class="lbl">จัดการบริษัท</span></a>
+        <a href="super_admin_prompts.html" class="rail-item"><i data-lucide="bot"></i><span class="lbl">ตั้งค่า AI</span></a>
+    </nav>
+    <div class="rail-foot">
+        <div class="rail-user">
+            <div class="avatar" id="railAvatar">?</div>
+            <span class="who" id="railUserName"></span>
         </div>
-        <div class="flex items-center gap-2">
-            <a href="../index.html" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                <i class="w-4 h-4" data-lucide="arrow-left"></i> กลับหน้าหลัก
-            </a>
-            <button onclick="loadAll()" class="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                <i class="w-4 h-4" data-lucide="refresh-cw"></i> รีเฟรช
+        <div class="rail-foot-row">
+            <button class="btn icon" id="themeToggle" title="สลับธีมสว่าง/มืด">
+                <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+                <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>
+            </button>
+            <button id="logoutBtn" onclick="doLogout()" title="ออกจากระบบ" class="btn small">
+                <i data-lucide="log-out"></i><span class="lbl">ออกจากระบบ</span>
             </button>
         </div>
     </div>
+</aside>
+<div class="main">
+
+<header class="topbar">
+    <div>
+        <h1>Cost Dashboard — ค่าใช้จ่าย AI (OpenRouter)</h1>
+        <div class="path" id="lastUpdated">โหลดข้อมูล...</div>
+    </div>
+    <div class="actions">
+        <button onclick="loadAll()" class="btn small primary"><i data-lucide="refresh-cw"></i> รีเฟรช</button>
+    </div>
 </header>
 
-<main class="max-w-[1200px] mx-auto p-4 space-y-4">
+<main class="content">
 
-    <div id="errorBox" class="hidden bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm"></div>
+    <div id="errorBox" class="errbox hidden"></div>
 
     <!-- Live spend -->
-    <section>
-        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">💸 การใช้จ่ายจริง (สดจาก OpenRouter)</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">วันนี้</p>
-                <p class="text-2xl font-bold text-slate-800 mt-1" id="usageDaily">—</p>
-                <p class="text-[11px] text-slate-400" id="usageDailyThb"></p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">เดือนนี้</p>
-                <p class="text-2xl font-bold text-slate-800 mt-1" id="usageMonthly">—</p>
-                <p class="text-[11px] text-slate-400" id="usageMonthlyThb"></p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">ใช้ไปทั้งหมด (key นี้)</p>
-                <p class="text-2xl font-bold text-slate-800 mt-1" id="usageTotal">—</p>
-                <p class="text-[11px] text-slate-400" id="usageTotalThb"></p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">เครดิตคงเหลือ (ทั้งบัญชี)</p>
-                <p class="text-2xl font-bold mt-1" id="creditsRemaining">—</p>
-                <p class="text-[11px] text-slate-400" id="creditsDetail"></p>
-            </div>
+    <div class="section-title">การใช้จ่ายจริง (สดจาก OpenRouter)</div>
+    <div class="stats">
+        <div class="stat">
+            <div class="l">วันนี้</div>
+            <div class="v num" id="usageDaily"><span class="mini-spin"></span></div>
+            <div class="faint num" id="usageDailyThb" style="font-size:11px"></div>
         </div>
-    </section>
+        <div class="stat">
+            <div class="l">เดือนนี้</div>
+            <div class="v num" id="usageMonthly"><span class="mini-spin"></span></div>
+            <div class="faint num" id="usageMonthlyThb" style="font-size:11px"></div>
+        </div>
+        <div class="stat">
+            <div class="l">ใช้ไปทั้งหมด (key นี้)</div>
+            <div class="v num" id="usageTotal"><span class="mini-spin"></span></div>
+            <div class="faint num" id="usageTotalThb" style="font-size:11px"></div>
+        </div>
+        <div class="stat">
+            <div class="l">เครดิตคงเหลือ (ทั้งบัญชี)</div>
+            <div class="v num" id="creditsRemaining"><span class="mini-spin"></span></div>
+            <div class="faint num" id="creditsDetail" style="font-size:11px"></div>
+        </div>
+    </div>
 
     <!-- Budget / sampling -->
-    <section>
-        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">🎯 Smart Sampling & Budget</h2>
-        <div class="bg-white rounded-xl border border-slate-200 p-4">
-            <div class="flex items-center justify-between mb-2 text-sm">
-                <span class="font-semibold">งบวันนี้: <span id="budgetLabel">—</span></span>
-                <span id="budgetPct" class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">—</span>
-            </div>
-            <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                <div id="budgetBar" class="h-3 rounded-full bg-emerald-500 transition-all" style="width:0%"></div>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-xs text-slate-600">
-                <div><span class="text-slate-400 block">สายที่สุ่มตรวจวันนี้</span><b id="sampledToday">—</b></div>
-                <div><span class="text-slate-400 block">เพดานต่อรอบ cron</span><b id="maxPerRun">—</b></div>
-                <div><span class="text-slate-400 block">ความยาวขั้นต่ำ</span><b id="minDuration">—</b></div>
-                <div><span class="text-slate-400 block">สัดส่วนสุ่มล้วน</span><b id="randomShare">—</b></div>
-            </div>
+    <div class="section-title">Smart Sampling &amp; Budget</div>
+    <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+            <span>งบวันนี้: <b id="budgetLabel" class="num"><span class="mini-spin"></span></b></span>
+            <span id="budgetPct" class="chip ok num"><span class="mini-spin"></span></span>
         </div>
-    </section>
+        <div class="budget-bar"><div id="budgetBar" style="width:0%"></div></div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px;font-size:11.5px">
+            <div><span class="dim">สายที่สุ่มตรวจวันนี้</span><br><b class="mono-ish" id="sampledToday"><span class="mini-spin"></span></b></div>
+            <div><span class="dim">เพดานต่อรอบ cron</span><br><b class="mono-ish" id="maxPerRun"><span class="mini-spin"></span></b></div>
+            <div><span class="dim">ความยาวขั้นต่ำ</span><br><b class="mono-ish" id="minDuration"><span class="mini-spin"></span></b></div>
+            <div><span class="dim">สัดส่วนสุ่มล้วน</span><br><b class="mono-ish" id="randomShare"><span class="mini-spin"></span></b></div>
+        </div>
+    </div>
 
     <!-- Per-call economics -->
-    <section>
-        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">📊 ต้นทุนต่อสาย & ปริมาณ</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">ต้นทุนเฉลี่ย/สาย*</p>
-                <p class="text-2xl font-bold text-slate-800 mt-1" id="avgCost">—</p>
-                <p class="text-[11px] text-slate-400" id="avgCostThb"></p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">วิเคราะห์แล้วทั้งหมด</p>
-                <p class="text-2xl font-bold text-slate-800 mt-1" id="completedTotal">—</p>
-                <p class="text-[11px] text-slate-400">สาย (วันนี้ <span id="completedToday">—</span>)</p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">สายเข้าระบบ/วัน</p>
-                <p class="text-2xl font-bold text-slate-800 mt-1" id="volumePerDay">—</p>
-                <p class="text-[11px] text-slate-400">รับสาย (≥40 วิ) <span id="answeredPerDay">—</span>/วัน</p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-xs font-semibold text-slate-500 uppercase">ถ้าวิเคราะห์ทุกสาย</p>
-                <p class="text-2xl font-bold text-rose-600 mt-1" id="fullAutoCost">—</p>
-                <p class="text-[11px] text-slate-400">ประมาณการ/เดือน</p>
-            </div>
+    <div class="section-title">ต้นทุนต่อสาย &amp; ปริมาณ</div>
+    <div class="stats">
+        <div class="stat">
+            <div class="l">ต้นทุนเฉลี่ย/สาย*</div>
+            <div class="v num" id="avgCost"><span class="mini-spin"></span></div>
+            <div class="faint num" id="avgCostThb" style="font-size:11px"></div>
         </div>
-        <p class="text-[11px] text-slate-400 mt-1">* ค่าเฉลี่ยจากยอดใช้จ่ายจริงทั้งหมดของ key หารด้วยจำนวนสายที่วิเคราะห์สำเร็จ (รวมงานทดสอบระหว่างพัฒนา จึงเป็นเพดานบน)</p>
-    </section>
+        <div class="stat">
+            <div class="l">วิเคราะห์แล้วทั้งหมด</div>
+            <div class="v num"><span id="completedTotal"><span class="mini-spin"></span></span> <small>(วันนี้ <span id="completedToday"><span class="mini-spin"></span></span>)</small></div>
+        </div>
+        <div class="stat">
+            <div class="l">สายเข้าระบบ/วัน</div>
+            <div class="v num"><span id="volumePerDay"><span class="mini-spin"></span></span> <small>(รับสาย <span id="answeredPerDay"><span class="mini-spin"></span></span>)</small></div>
+        </div>
+        <div class="stat">
+            <div class="l">ถ้าวิเคราะห์ทุกสาย</div>
+            <div class="v crit"><span id="fullAutoCost"><span class="mini-spin"></span></span><small>/เดือน</small></div>
+        </div>
+    </div>
+    <p class="faint" style="font-size:11px;margin:-8px 0 14px">* ค่าเฉลี่ยจากยอดใช้จ่ายจริงทั้งหมดของ key หารด้วยจำนวนสายที่วิเคราะห์สำเร็จ (รวมงานทดสอบระหว่างพัฒนา จึงเป็นเพดานบน)</p>
 
     <!-- Daily table -->
-    <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-            <i class="w-4 h-4 text-slate-500" data-lucide="calendar"></i>
-            <h2 class="text-sm font-bold">สายที่วิเคราะห์ย้อนหลัง 14 วัน</h2>
-        </div>
-        <table class="w-full text-left text-xs">
-            <thead class="bg-slate-50 text-slate-500 uppercase">
+    <div class="section-title">สายที่วิเคราะห์ย้อนหลัง 14 วัน</div>
+    <div class="card pad0">
+        <table class="dense">
+            <thead>
                 <tr>
-                    <th class="px-4 py-2">วันที่</th>
-                    <th class="px-4 py-2 text-right">จำนวนสาย</th>
-                    <th class="px-4 py-2 text-right">นาทีเสียงรวม</th>
-                    <th class="px-4 py-2 text-right">ค่าใช้จ่ายโดยประมาณ</th>
+                    <th>วันที่</th>
+                    <th class="num">จำนวนสาย</th>
+                    <th class="num">นาทีเสียงรวม</th>
+                    <th class="num">ค่าใช้จ่ายโดยประมาณ</th>
                 </tr>
             </thead>
-            <tbody id="dailyBody" class="divide-y divide-slate-100"></tbody>
+            <tbody id="dailyBody"></tbody>
         </table>
-    </section>
+    </div>
 </main>
 
+</div><!-- /.main -->
+</div><!-- /.shell -->
+
 <script>
+// Theme toggle: explicit choice overrides the OS preference and persists across reloads
+// (same 'vc-theme' localStorage key used across every page, so the choice follows you around).
+(function () {
+    var root = document.documentElement;
+    document.getElementById('themeToggle').addEventListener('click', function () {
+        var current = root.getAttribute('data-theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDarkNow = current ? current === 'dark' : prefersDark;
+        var next = isDarkNow ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem('vc-theme', next);
+    });
+})();
+
+// Sidebar collapse: smooth width transition (CSS), remembered across reloads.
+(function () {
+    var rail = document.getElementById('rail');
+    var btn = document.getElementById('railCollapseBtn');
+    if (localStorage.getItem('vc-rail-collapsed') === '1') rail.classList.add('collapsed');
+    btn.addEventListener('click', function () {
+        rail.classList.toggle('collapsed');
+        localStorage.setItem('vc-rail-collapsed', rail.classList.contains('collapsed') ? '1' : '0');
+    });
+})();
+
+// Icons are static (sidebar nav, header buttons) - render them now instead of waiting on this
+// page own async data load, so the sidebar never sits blank/text-only for a couple seconds.
+lucide.createIcons();
+
 const API_BASE = '../api/index.php';
 const THB = 33; // แสดงเป็นเงินบาทโดยประมาณ
 let aiToken = null;
@@ -151,12 +197,23 @@ let aiToken = null;
         window.location.href = '../index.html';
         return;
     }
-    try { aiToken = (JSON.parse(raw)).api_token || null; } catch (e) { console.error(e); }
+    try {
+        const user = JSON.parse(raw);
+        aiToken = user.api_token || null;
+        document.getElementById('railAvatar').textContent = (user.name || '?').trim().charAt(0).toUpperCase();
+        document.getElementById('railUserName').textContent = user.name + (user.company_name ? ' (' + user.company_name + ')' : '');
+    } catch (e) { console.error(e); }
     if (!aiToken) {
         alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
         window.location.href = '../index.html';
     }
 })();
+
+function doLogout() {
+    sessionStorage.removeItem('voicecall_user');
+    localStorage.removeItem('voicecall_user_shared');
+    window.location.href = '../index.html';
+}
 
 const usd = v => v == null ? '—' : '$' + Number(v).toFixed(v < 1 ? 4 : 2);
 const thb = v => v == null ? '' : '≈ ' + (Number(v) * THB).toLocaleString('th-TH', { maximumFractionDigits: 0 }) + ' บาท';
@@ -190,7 +247,7 @@ async function loadAll() {
     if (c) {
         const rem = document.getElementById('creditsRemaining');
         rem.textContent = usd(c.remaining);
-        rem.className = 'text-2xl font-bold mt-1 ' + (c.remaining < 2 ? 'text-rose-600' : c.remaining < 5 ? 'text-amber-600' : 'text-emerald-600');
+        rem.className = 'v num ' + (c.remaining < 2 ? 'crit' : c.remaining < 5 ? 'med' : 'ok');
         document.getElementById('creditsDetail').textContent = `เติมแล้ว ${usd(c.total_credits)} · ใช้ไป ${usd(c.total_usage)} (รวมทุกโปรเจคในบัญชี)`;
     }
 
@@ -198,10 +255,12 @@ async function loadAll() {
     if (u && s) {
         const pct = Math.min(100, Math.round((u.usage_daily / s.budget_usd_per_day) * 100));
         document.getElementById('budgetLabel').textContent = `${usd(u.usage_daily)} / ${usd(s.budget_usd_per_day)} (${thb(s.budget_usd_per_day)}/วัน)`;
-        document.getElementById('budgetPct').textContent = pct + '%';
+        const pctChip = document.getElementById('budgetPct');
+        pctChip.textContent = pct + '%';
+        pctChip.className = 'chip num ' + (pct >= 100 ? 'crit' : pct >= 75 ? 'med' : 'ok');
         const bar = document.getElementById('budgetBar');
         bar.style.width = pct + '%';
-        bar.className = 'h-3 rounded-full transition-all ' + (pct >= 100 ? 'bg-rose-500' : pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500');
+        bar.style.background = pct >= 100 ? 'var(--crit)' : pct >= 75 ? 'var(--med)' : 'var(--accent)';
     }
     document.getElementById('sampledToday').textContent = s.sampled_today + ' สาย';
     document.getElementById('maxPerRun').textContent = s.max_calls_per_run + ' สาย/รอบ';
@@ -226,16 +285,15 @@ async function loadAll() {
     (data.daily || []).forEach(d => {
         const est = st.avg_cost_per_call_usd ? d.calls * st.avg_cost_per_call_usd : null;
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-50';
         tr.innerHTML = `
-            <td class="px-4 py-2 font-medium">${d.day}</td>
-            <td class="px-4 py-2 text-right">${d.calls}</td>
-            <td class="px-4 py-2 text-right">${d.minutes ?? '-'}</td>
-            <td class="px-4 py-2 text-right">${est ? usd(est) + ' <span class="text-slate-400">' + thb(est) + '</span>' : '-'}</td>`;
+            <td>${d.day}</td>
+            <td class="num">${d.calls}</td>
+            <td class="num">${d.minutes ?? '-'}</td>
+            <td class="num">${est ? usd(est) + ' <span class="dim">' + thb(est) + '</span>' : '-'}</td>`;
         tbody.appendChild(tr);
     });
     if (!(data.daily || []).length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">ยังไม่มีข้อมูล</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="table-empty">ยังไม่มีข้อมูล</td></tr>';
     }
 
     document.getElementById('lastUpdated').textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH');

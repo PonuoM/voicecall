@@ -4,209 +4,251 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>สายยาวผิดปกติ - Long Calls</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="assets/theme.css?v=11" />
     <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-    </style>
+    <script>
+        // Pre-paint theme: apply saved theme before first render, so navigating between pages
+        // doesn't flash light before switching to the saved dark (or vice versa).
+        try {
+            var t = localStorage.getItem('vc-theme');
+            if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+    </script>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body>
 
-<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
-    <div class="max-w-[1500px] mx-auto px-4 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <div class="w-9 h-9 bg-amber-500 rounded-xl flex items-center justify-center">
-                <i class="w-5 h-5 text-white" data-lucide="timer"></i>
-            </div>
-            <div>
-                <h1 class="text-sm font-bold leading-tight">สายยาวผิดปกติ — ตรวจการปั่น Talk Time</h1>
-                <p class="text-[10px] text-slate-500 uppercase tracking-wider" id="subTitle">Long Call Report</p>
-            </div>
+<div class="shell">
+<aside class="rail" id="rail">
+    <div class="rail-brand">
+        <div class="rail-mark"><i data-lucide="audio-lines"></i></div>
+        <div class="txt"><div class="name">Audit Rec<span class="rec-dot"></span></div></div>
+        <button class="rail-toggle" id="railCollapseBtn" title="หุบ/ขยายเมนู" aria-label="หุบ/ขยายเมนู">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        </button>
+    </div>
+    <div class="rail-group-label">ข้อมูลสาย</div>
+    <nav>
+        <a href="../index.html" class="rail-item"><i data-lucide="phone"></i><span class="lbl">รายการสาย</span></a>
+        <a href="sync_dashboard.html" class="rail-item"><i data-lucide="refresh-cw"></i><span class="lbl">Sync ไฟล์เสียง</span></a>
+        <a href="fraud_dashboard.html" class="rail-item"><i data-lucide="shield-alert"></i><span class="lbl">ตรวจทุจริต</span></a>
+        <a href="long_calls.html" class="rail-item active"><i data-lucide="timer"></i><span class="lbl">สายยาวผิดปกติ</span></a>
+        <a href="ghost_numbers.html" class="rail-item"><i data-lucide="user-x"></i><span class="lbl">เบอร์ต้องสงสัย</span></a>
+    </nav>
+    <div class="rail-group-label">ระบบ</div>
+    <nav>
+        <a href="cost_dashboard.html" class="rail-item"><i data-lucide="wallet"></i><span class="lbl">Cost</span></a>
+        <a href="super_admin_companies.html" class="rail-item"><i data-lucide="settings"></i><span class="lbl">จัดการบริษัท</span></a>
+        <a href="super_admin_prompts.html" class="rail-item"><i data-lucide="bot"></i><span class="lbl">ตั้งค่า AI</span></a>
+    </nav>
+    <div class="rail-foot">
+        <div class="rail-user">
+            <div class="avatar" id="railAvatar">?</div>
+            <span class="who" id="railUserName"></span>
         </div>
-        <div class="flex items-center gap-2">
-            <a href="../index.html" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                <i class="w-4 h-4" data-lucide="arrow-left"></i> กลับหน้าหลัก
-            </a>
-            <button onclick="loadAll()" class="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                <i class="w-4 h-4" data-lucide="refresh-cw"></i> รีเฟรช
+        <div class="rail-foot-row">
+            <button class="btn icon" id="themeToggle" title="สลับธีมสว่าง/มืด">
+                <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+                <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>
+            </button>
+            <button id="logoutBtn" onclick="doLogout()" title="ออกจากระบบ" class="btn small">
+                <i data-lucide="log-out"></i><span class="lbl">ออกจากระบบ</span>
             </button>
         </div>
+    </div>
+</aside>
+<div class="main">
+
+<header class="topbar">
+    <div>
+        <h1>สายยาวผิดปกติ — ตรวจการปั่น Talk Time</h1>
+        <div class="path" id="subTitle">Long Call Report</div>
+    </div>
+    <div class="actions">
+        <button onclick="loadAll()" class="btn small primary"><i data-lucide="refresh-cw"></i> รีเฟรช</button>
     </div>
 </header>
 
-<main class="max-w-[1500px] mx-auto p-4 space-y-4">
+<main class="content">
 
-    <div id="errorBox" class="hidden bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm"></div>
+    <div id="errorBox" class="errbox hidden"></div>
 
     <!-- Filters -->
-    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
-        <div class="flex flex-wrap items-end gap-3">
-            <div class="w-56">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">บริษัท</label>
-                <select id="companyFilter" onchange="loadAll()" class="form-select w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500">
-                    <option value="">กำลังโหลด...</option>
-                </select>
-            </div>
-            <div class="w-44">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ยาวตั้งแต่ (นาที)</label>
-                <input id="minMinutes" type="number" min="1" max="600" value="30" onchange="loadAll()"
-                    class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500" />
-            </div>
-            <div class="w-40">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">จากวันที่</label>
-                <input id="dateFrom" type="date" onchange="loadAll()" class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500" />
-            </div>
-            <div class="w-40">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ถึงวันที่</label>
-                <input id="dateTo" type="date" onchange="loadAll()" class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-amber-500" />
-            </div>
-            <button onclick="resetFilters()" class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm flex items-center gap-2">
-                <i class="w-4 h-4" data-lucide="rotate-ccw"></i> รีเซ็ต
-            </button>
+    <div class="filterbar">
+        <div class="field grow" style="max-width:260px">
+            <label>บริษัท</label>
+            <select id="companyFilter" onchange="loadAll()">
+                <option value="">กำลังโหลด...</option>
+            </select>
         </div>
-    </section>
-
-    <!-- Headline: hours spent vs sales made -->
-    <section>
-        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">⏱️ สรุปสายที่กรองอยู่ — เวลาที่ใช้ไป vs ผลที่ได้</h2>
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div class="bg-white rounded-xl border border-slate-200 p-3">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">จำนวนสาย</p>
-                <p class="text-xl font-bold text-slate-800 mt-1" id="tCalls">—</p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-3">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">ชั่วโมงที่ใช้ไป</p>
-                <p class="text-xl font-bold text-amber-600 mt-1" id="tHours">—</p>
-            </div>
-            <div class="bg-white rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
-                <p class="text-[11px] font-semibold text-emerald-700 uppercase">ขายได้ (จาก CRM)</p>
-                <p class="text-xl font-bold text-emerald-700 mt-1" id="tSold">—</p>
-            </div>
-            <div class="bg-white rounded-xl border border-slate-200 p-3">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">มีออเดอร์จริง</p>
-                <p class="text-xl font-bold text-sky-700 mt-1" id="tOrder">—</p>
-            </div>
-            <div class="bg-white rounded-xl border border-rose-200 bg-rose-50/40 p-3">
-                <p class="text-[11px] font-semibold text-rose-700 uppercase">ตีกลับ/ยกเลิก</p>
-                <p class="text-xl font-bold text-rose-700 mt-1" id="tReturned">—</p>
-            </div>
+        <div class="field">
+            <label>ยาวตั้งแต่ (นาที)</label>
+            <input id="minMinutes" type="number" min="1" max="600" value="30" onchange="loadAll()" style="width:90px" />
         </div>
-        <p class="text-[11px] text-slate-400 mt-1" id="totalsNote"></p>
-    </section>
+        <div class="field">
+            <label>จากวันที่</label>
+            <input id="dateFrom" type="date" onchange="loadAll()" />
+        </div>
+        <div class="field">
+            <label>ถึงวันที่</label>
+            <input id="dateTo" type="date" onchange="loadAll()" />
+        </div>
+        <div class="spacer"></div>
+        <button onclick="resetFilters()" class="btn small"><i data-lucide="rotate-ccw"></i> รีเซ็ต</button>
+    </div>
 
     <!-- Buckets: click to set threshold -->
-    <section>
-        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">📊 จำนวนสายตามความยาว (กดเพื่อกรอง)</h2>
-        <div class="grid grid-cols-2 md:grid-cols-6 gap-3" id="bucketCards">
-            <div class="bg-white rounded-xl border border-slate-200 p-3">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">ทั้งหมด</p>
-                <p class="text-xl font-bold text-slate-800 mt-1" id="bTotal">—</p>
-            </div>
-            <button onclick="setMin(10)" class="bg-white rounded-xl border border-slate-200 hover:border-amber-400 p-3 text-left transition-colors">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 10 นาที</p>
-                <p class="text-xl font-bold text-slate-800 mt-1" id="b10">—</p>
-            </button>
-            <button onclick="setMin(20)" class="bg-white rounded-xl border border-slate-200 hover:border-amber-400 p-3 text-left transition-colors">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 20 นาที</p>
-                <p class="text-xl font-bold text-slate-800 mt-1" id="b20">—</p>
-            </button>
-            <button onclick="setMin(30)" class="bg-white rounded-xl border border-amber-200 bg-amber-50/40 hover:border-amber-400 p-3 text-left transition-colors">
-                <p class="text-[11px] font-semibold text-amber-700 uppercase">≥ 30 นาที</p>
-                <p class="text-xl font-bold text-amber-700 mt-1" id="b30">—</p>
-            </button>
-            <button onclick="setMin(45)" class="bg-white rounded-xl border border-slate-200 hover:border-amber-400 p-3 text-left transition-colors">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 45 นาที</p>
-                <p class="text-xl font-bold text-orange-600 mt-1" id="b45">—</p>
-            </button>
-            <button onclick="setMin(60)" class="bg-white rounded-xl border border-slate-200 hover:border-rose-400 p-3 text-left transition-colors">
-                <p class="text-[11px] font-semibold text-slate-500 uppercase">≥ 1 ชั่วโมง</p>
-                <p class="text-xl font-bold text-rose-600 mt-1" id="b60">—</p>
-            </button>
+    <div class="section-title">จำนวนสายตามความยาว <span class="n">กดเพื่อกรอง</span></div>
+    <div class="stats" id="bucketCards">
+        <div class="stat">
+            <div class="l">ทั้งหมด</div>
+            <div class="v num" id="bTotal"><span class="mini-spin"></span></div>
         </div>
-    </section>
+        <button onclick="setMin(10)" class="stat bucket" data-min="10">
+            <div class="l">≥ 10 นาที</div>
+            <div class="v num" id="b10"><span class="mini-spin"></span></div>
+        </button>
+        <button onclick="setMin(20)" class="stat bucket" data-min="20">
+            <div class="l">≥ 20 นาที</div>
+            <div class="v num" id="b20"><span class="mini-spin"></span></div>
+        </button>
+        <button onclick="setMin(30)" class="stat bucket" data-min="30">
+            <div class="l">≥ 30 นาที</div>
+            <div class="v num" id="b30"><span class="mini-spin"></span></div>
+        </button>
+        <button onclick="setMin(45)" class="stat bucket" data-min="45">
+            <div class="l">≥ 45 นาที</div>
+            <div class="v num" id="b45"><span class="mini-spin"></span></div>
+        </button>
+        <button onclick="setMin(60)" class="stat bucket" data-min="60">
+            <div class="l">≥ 1 ชั่วโมง</div>
+            <div class="v num" id="b60"><span class="mini-spin"></span></div>
+        </button>
+    </div>
 
-    <div class="grid lg:grid-cols-2 gap-4 items-start">
-        <!-- Ranking by caller -->
-        <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-                <i class="w-4 h-4 text-slate-500" data-lucide="user-round"></i>
-                <h2 class="text-sm font-bold flex-1">อันดับผู้โทร (สายยาว)</h2>
-                <span class="text-[10px] text-slate-400">คุยกี่เบอร์ = ยิ่งน้อยยิ่งน่าสงสัย</span>
-            </div>
-            <div class="max-h-[460px] overflow-y-auto">
-                <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
-                        <tr>
-                            <th class="px-3 py-2">พนักงาน / เบอร์</th>
-                            <th class="px-2 py-2 text-center">สาย</th>
-                            <th class="px-2 py-2 text-center">คุยกี่เบอร์</th>
-                            <th class="px-2 py-2 text-right">ชม.รวม</th>
-                            <th class="px-2 py-2 text-center">ขายได้</th>
-                            <th class="px-2 py-2 text-right">ยาวสุด</th>
-                        </tr>
-                    </thead>
-                    <tbody id="callerBody" class="divide-y divide-slate-100"></tbody>
-                </table>
-            </div>
-        </section>
+    <!-- Headline: hours spent vs sales made -->
+    <div class="section-title">สรุปสายที่กรองอยู่ <span class="n">เวลาที่ใช้ไป vs ผลที่ได้</span></div>
+    <div class="stats">
+        <div class="stat">
+            <div class="l">จำนวนสาย</div>
+            <div class="v num" id="tCalls"><span class="mini-spin"></span></div>
+        </div>
+        <div class="stat">
+            <div class="l">ชั่วโมงที่ใช้ไป</div>
+            <div class="v num med" id="tHours"><span class="mini-spin"></span></div>
+        </div>
+        <div class="stat">
+            <div class="l">ขายได้ (จาก CRM)</div>
+            <div class="v num ok" id="tSold"><span class="mini-spin"></span></div>
+        </div>
+        <div class="stat">
+            <div class="l">มีออเดอร์จริง</div>
+            <div class="v num info" id="tOrder"><span class="mini-spin"></span></div>
+        </div>
+        <div class="stat">
+            <div class="l">ตีกลับ/ยกเลิก</div>
+            <div class="v num crit" id="tReturned"><span class="mini-spin"></span></div>
+        </div>
+    </div>
+    <p class="faint" style="font-size:11px;margin:-8px 0 14px" id="totalsNote"></p>
 
-        <!-- Repeated pairs -->
-        <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div class="px-4 py-3 border-b border-slate-100 bg-rose-50/50 flex items-center gap-2">
-                <i class="w-4 h-4 text-rose-500" data-lucide="repeat"></i>
-                <h2 class="text-sm font-bold flex-1">คู่สายที่คุยยาวซ้ำๆ กัน</h2>
-                <span class="text-[10px] text-rose-400">สัญญาณปั่น talk time</span>
-            </div>
-            <div class="max-h-[460px] overflow-y-auto">
-                <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
-                        <tr>
-                            <th class="px-3 py-2">ผู้โทร → ผู้รับ</th>
-                            <th class="px-2 py-2 text-center">ครั้ง</th>
-                            <th class="px-2 py-2 text-center">ขายได้</th>
-                            <th class="px-2 py-2 text-right">ชม.รวม</th>
-                            <th class="px-2 py-2 text-right">ยาวสุด</th>
-                        </tr>
-                    </thead>
-                    <tbody id="pairBody" class="divide-y divide-slate-100"></tbody>
-                </table>
-            </div>
-        </section>
+    <!-- Ranking by caller -->
+    <div class="section-title">อันดับผู้โทร (สายยาว) <span class="n">คุยกี่เบอร์ = ยิ่งน้อยยิ่งน่าสงสัย</span></div>
+    <div class="card pad0" style="margin-bottom:20px">
+        <div class="table-wrap">
+            <table class="dense">
+                <thead>
+                    <tr>
+                        <th>พนักงาน / เบอร์</th>
+                        <th class="num">สาย</th>
+                        <th class="num">คุยกี่เบอร์</th>
+                        <th class="num">ชม.รวม</th>
+                        <th class="num">ขายได้</th>
+                        <th class="num">ยาวสุด</th>
+                    </tr>
+                </thead>
+                <tbody id="callerBody"></tbody>
+            </table>
+        </div>
+        <div class="show-more-row hidden" id="callerMoreRow"><button class="btn small" id="callerMoreBtn"></button></div>
+    </div>
+
+    <!-- Repeated pairs -->
+    <div class="section-title">คู่สายที่คุยยาวซ้ำๆ กัน <span class="n">สัญญาณปั่น talk time</span></div>
+    <div class="card pad0" style="margin-bottom:20px">
+        <div class="table-wrap">
+            <table class="dense">
+                <thead>
+                    <tr>
+                        <th>ผู้โทร → ผู้รับ</th>
+                        <th class="num">ครั้ง</th>
+                        <th class="num">ขายได้</th>
+                        <th class="num">ชม.รวม</th>
+                        <th class="num">ยาวสุด</th>
+                    </tr>
+                </thead>
+                <tbody id="pairBody"></tbody>
+            </table>
+        </div>
+        <div class="show-more-row hidden" id="pairMoreRow"><button class="btn small" id="pairMoreBtn"></button></div>
     </div>
 
     <!-- Call list -->
-    <section class="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-            <i class="w-4 h-4 text-slate-500" data-lucide="list"></i>
-            <h2 class="text-sm font-bold flex-1">รายการสาย <span id="listCount" class="text-slate-400 font-normal"></span></h2>
-        </div>
-        <div class="overflow-x-auto max-h-[70vh] overflow-y-auto">
-            <table class="w-full text-left text-xs">
-                <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0">
+    <div class="section-title">รายการสาย <span class="n" id="listCount"></span></div>
+    <div class="card pad0">
+        <div class="table-wrap">
+            <table class="dense">
+                <thead>
                     <tr>
-                        <th class="px-3 py-2">วันที่ &amp; เวลา</th>
-                        <th class="px-3 py-2">Call ID</th>
-                        <th class="px-3 py-2">พนักงาน / ผู้โทร</th>
-                        <th class="px-3 py-2">ลูกค้า / ผู้รับ</th>
-                        <th class="px-3 py-2 text-right">ระยะเวลา</th>
-                        <th class="px-3 py-2">ผลจาก CRM</th>
-                        <th class="px-3 py-2">ออเดอร์</th>
-                        <th class="px-3 py-2 text-center">ฟัง</th>
+                        <th>วันที่ &amp; เวลา</th>
+                        <th>Call ID</th>
+                        <th>พนักงาน / ผู้โทร</th>
+                        <th>ลูกค้า / ผู้รับ</th>
+                        <th class="num">ระยะเวลา</th>
+                        <th>ผลจาก CRM</th>
+                        <th>ออเดอร์</th>
+                        <th class="ctr">ฟัง</th>
                     </tr>
                 </thead>
-                <tbody id="callBody" class="divide-y divide-slate-100"></tbody>
+                <tbody id="callBody"></tbody>
             </table>
         </div>
-    </section>
+        <div class="show-more-row hidden" id="callMoreRow"><button class="btn small" id="callMoreBtn"></button></div>
+    </div>
 </main>
 
+</div><!-- /.main -->
+</div><!-- /.shell -->
+
 <script>
+// Theme toggle: explicit choice overrides the OS preference and persists across reloads
+// (same 'vc-theme' localStorage key used across every page, so the choice follows you around).
+(function () {
+    var root = document.documentElement;
+    document.getElementById('themeToggle').addEventListener('click', function () {
+        var current = root.getAttribute('data-theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDarkNow = current ? current === 'dark' : prefersDark;
+        var next = isDarkNow ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem('vc-theme', next);
+    });
+})();
+
+// Sidebar collapse: smooth width transition (CSS), remembered across reloads.
+(function () {
+    var rail = document.getElementById('rail');
+    var btn = document.getElementById('railCollapseBtn');
+    if (localStorage.getItem('vc-rail-collapsed') === '1') rail.classList.add('collapsed');
+    btn.addEventListener('click', function () {
+        rail.classList.toggle('collapsed');
+        localStorage.setItem('vc-rail-collapsed', rail.classList.contains('collapsed') ? '1' : '0');
+    });
+})();
+
+// Icons are static (sidebar nav, header buttons) - render them now instead of waiting on this
+// page own async data load, so the sidebar never sits blank/text-only for a couple seconds.
+lucide.createIcons();
+
 const API_BASE = '../api/index.php';
 let aiToken = null;
 let currentUser = null;
@@ -221,6 +263,8 @@ let currentUser = null;
     try {
         currentUser = JSON.parse(raw);
         aiToken = currentUser.api_token || null;
+        document.getElementById('railAvatar').textContent = (currentUser.name || '?').trim().charAt(0).toUpperCase();
+        document.getElementById('railUserName').textContent = currentUser.name + (currentUser.company_name ? ' (' + currentUser.company_name + ')' : '');
     } catch (e) { console.error(e); }
     if (!aiToken) {
         alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
@@ -228,9 +272,48 @@ let currentUser = null;
     }
 })();
 
+function doLogout() {
+    sessionStorage.removeItem('voicecall_user');
+    localStorage.removeItem('voicecall_user_shared');
+    window.location.href = '../index.html';
+}
+
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtPhone = p => { const d = String(p || '').replace(/\D/g, ''); const l = d.startsWith('66') ? '0' + d.slice(2) : d; return l.length === 10 ? `${l.slice(0,3)}-${l.slice(3,6)}-${l.slice(6)}` : (p || '-'); };
 const fmtDur = sec => { const s = Math.round(sec || 0); const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), r = s%60; return h ? `${h}:${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}` : `${m}:${String(r).padStart(2,'0')}`; };
+
+/**
+ * Renders `limit` rows into tbody at a time; a "ดูเพิ่มเติม" button reveals the next batch on
+ * click (not everything at once - dumping hundreds of rows into the page in one go makes it so
+ * tall that fast-scrolling shows visibly unpainted gaps while the browser tries to catch up).
+ * Keeps long lists from needing their own internal scrollbar - the page itself scrolls instead,
+ * which is the only scrollbar a user has to fight with.
+ */
+function renderShowMore(tbodyId, moreRowId, moreBtnId, rows, limit, emptyColspan, emptyText, buildRowFn) {
+    const tbody = document.getElementById(tbodyId);
+    const moreRow = document.getElementById(moreRowId);
+    const moreBtn = document.getElementById(moreBtnId);
+    tbody.innerHTML = '';
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="${emptyColspan}" class="table-empty">${emptyText}</td></tr>`;
+        moreRow.classList.add('hidden');
+        return;
+    }
+    let shown = 0;
+    function showNextBatch() {
+        rows.slice(shown, shown + limit).forEach(r => tbody.appendChild(buildRowFn(r)));
+        shown = Math.min(shown + limit, rows.length);
+        const remaining = rows.length - shown;
+        if (remaining > 0) {
+            moreRow.classList.remove('hidden');
+            moreBtn.textContent = `ดูเพิ่มเติม (อีก ${remaining.toLocaleString()} รายการ)`;
+        } else {
+            moreRow.classList.add('hidden');
+        }
+    }
+    moreBtn.onclick = showNextBatch;
+    showNextBatch();
+}
 
 async function loadCompanies() {
     const select = document.getElementById('companyFilter');
@@ -264,6 +347,13 @@ function resetFilters() {
     loadAll();
 }
 
+function highlightBucket() {
+    const current = Number(document.getElementById('minMinutes').value || 30);
+    document.querySelectorAll('#bucketCards .stat.bucket').forEach(btn => {
+        btn.classList.toggle('on', Number(btn.getAttribute('data-min')) === current);
+    });
+}
+
 async function loadAll() {
     const companyId = document.getElementById('companyFilter').value;
     if (!companyId) return;
@@ -278,7 +368,8 @@ async function loadAll() {
     if (to) params.set('to', to);
 
     const errBox = document.getElementById('errorBox');
-    document.getElementById('callBody').innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">กำลังโหลด...</td></tr>';
+    document.getElementById('callBody').innerHTML = '<tr><td colspan="8" class="table-empty">กำลังโหลด...</td></tr>';
+    highlightBucket();
 
     const res = await fetch(`${API_BASE}/long-calls?${params}`, { headers: { 'Authorization': 'Bearer ' + aiToken } });
     const data = await res.json();
@@ -298,7 +389,7 @@ async function loadAll() {
     document.getElementById('totalsNote').textContent =
         `จับคู่กับบันทึกใน CRM ได้ ${t.logged || 0} จาก ${t.calls || 0} สาย` +
         (t.truncated ? ' · แสดงผลจากสายที่ยาวที่สุด 2,000 สายแรกเท่านั้น (ลองตั้งเกณฑ์นาทีให้สูงขึ้น)' : '') +
-        (data.erp_error ? ` · ⚠️ ดึงข้อมูล ERP ไม่ได้: ${data.erp_error}` : '');
+        (data.erp_error ? ` · ดึงข้อมูล ERP ไม่ได้: ${data.erp_error}` : '');
 
     const b = data.buckets || {};
     document.getElementById('bTotal').textContent = Number(b.total || 0).toLocaleString();
@@ -308,103 +399,89 @@ async function loadAll() {
     document.getElementById('b45').textContent = Number(b.m45 || 0).toLocaleString();
     document.getElementById('b60').textContent = Number(b.m60 || 0).toLocaleString();
     document.getElementById('subTitle').textContent = `กรองที่ ≥ ${data.min_minutes} นาที`;
+    highlightBucket();
 
     // Caller ranking
-    const callerBody = document.getElementById('callerBody');
-    callerBody.innerHTML = '';
-    (data.by_caller || []).forEach(c => {
+    renderShowMore('callerBody', 'callerMoreRow', 'callerMoreBtn', data.by_caller || [], 8, 6, 'ไม่พบข้อมูล', c => {
         // Many long calls concentrated on very few receivers is the padding signature.
         const concentrated = Number(c.long_calls) >= 3 && Number(c.distinct_receivers) <= Math.ceil(Number(c.long_calls) / 2);
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-50';
+        if (concentrated) tr.className = 'flagged';
         tr.innerHTML = `
-            <td class="px-3 py-2">
-                <div class="font-medium">${esc(c.employee_name || 'ไม่พบในระบบ')}</div>
-                <div class="text-[11px] text-slate-400 font-mono">${fmtPhone(c.caller_phone)}</div>
+            <td>
+                <div class="emp">${esc(c.employee_name || 'ไม่พบในระบบ')}</div>
+                <div class="emp-sub mono-ish">${fmtPhone(c.caller_phone)}</div>
             </td>
-            <td class="px-2 py-2 text-center font-semibold">${c.long_calls}</td>
-            <td class="px-2 py-2 text-center ${concentrated ? 'text-rose-600 font-bold' : 'text-slate-500'}">${c.distinct_receivers}${concentrated ? ' ⚠️' : ''}</td>
-            <td class="px-2 py-2 text-right">${c.total_hours}</td>
-            <td class="px-2 py-2 text-center ${Number(c.sold) === 0 ? 'text-rose-600 font-bold' : 'text-emerald-700 font-semibold'}">${c.sold}</td>
-            <td class="px-2 py-2 text-right">${c.max_minutes} น.</td>`;
-        callerBody.appendChild(tr);
+            <td class="num mono-ish">${c.long_calls}</td>
+            <td class="num mono-ish" style="${concentrated ? 'color:var(--crit);font-weight:600' : ''}">${c.distinct_receivers}</td>
+            <td class="num mono-ish">${c.total_hours}</td>
+            <td class="num mono-ish ${Number(c.sold) === 0 ? 'crit' : ''}">${c.sold}</td>
+            <td class="num mono-ish">${c.max_minutes} น.</td>`;
+        return tr;
     });
-    if (!(data.by_caller || []).length) callerBody.innerHTML = '<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">ไม่พบข้อมูล</td></tr>';
 
     // Repeated pairs
-    const pairBody = document.getElementById('pairBody');
-    pairBody.innerHTML = '';
-    (data.repeated_pairs || []).forEach(p => {
+    renderShowMore('pairBody', 'pairMoreRow', 'pairMoreBtn', data.repeated_pairs || [], 8, 5, 'ไม่พบคู่สายที่คุยยาวซ้ำ', p => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-50';
+        if (Number(p.times) >= 3) tr.className = 'flagged';
         tr.innerHTML = `
-            <td class="px-3 py-2">
-                <div class="font-medium">${esc(p.employee_name || fmtPhone(p.caller_phone))}</div>
-                <div class="text-[11px] text-slate-400 font-mono">${fmtPhone(p.caller_phone)} → ${fmtPhone(p.receiver_phone)}</div>
-            </td>
-            <td class="px-2 py-2 text-center font-bold ${Number(p.times) >= 3 ? 'text-rose-600' : 'text-amber-600'}">${p.times}</td>
-            <td class="px-2 py-2 text-center ${Number(p.sold) === 0 ? 'text-rose-600 font-bold' : 'text-emerald-700 font-semibold'}">${p.sold}</td>
-            <td class="px-2 py-2 text-right">${p.total_hours}</td>
-            <td class="px-2 py-2 text-right">${p.max_minutes} น.</td>`;
-        pairBody.appendChild(tr);
+            <td><span class="emp">${esc(p.employee_name || fmtPhone(p.caller_phone))}</span> <span class="dim">→ ${fmtPhone(p.receiver_phone)}</span></td>
+            <td class="num mono-ish" style="${Number(p.times) >= 3 ? 'color:var(--crit);font-weight:600' : ''}">${p.times}</td>
+            <td class="num mono-ish ${Number(p.sold) === 0 ? 'crit' : ''}">${p.sold}</td>
+            <td class="num mono-ish">${p.total_hours}</td>
+            <td class="num mono-ish">${p.max_minutes} น.</td>`;
+        return tr;
     });
-    if (!(data.repeated_pairs || []).length) pairBody.innerHTML = '<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">ไม่พบคู่สายที่คุยยาวซ้ำ 🎉</td></tr>';
 
     // Call list
-    const callBody = document.getElementById('callBody');
-    callBody.innerHTML = '';
-    (data.calls || []).forEach(c => {
+    document.getElementById('listCount').textContent = `(${(data.calls || []).length} รายการ)`;
+    renderShowMore('callBody', 'callMoreRow', 'callMoreBtn', data.calls || [], 20, 8, 'ไม่พบสายที่ยาวถึงเกณฑ์นี้', c => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-50 fade-in';
+        if (c.duration_seconds >= 3600) tr.className = 'flagged';
 
-        // CRM outcome: sold gets a green badge, anything else the raw result text, and a call the
+        // CRM outcome: sold gets an ok chip, anything else the raw result text, and a call the
         // telesale never logged at all is worth flagging on its own.
         const resultCell = c.sold
-            ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">ขายได้</span>'
+            ? '<span class="chip ok">ขายได้</span>'
             : c.call_result
-                ? `<span class="text-[11px] text-slate-600">${esc(c.call_result)}</span>`
+                ? `<span class="dim">${esc(c.call_result)}</span>`
                 : c.crm_coverage === 'unlogged'
-                    ? '<span class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5" title="ลูกค้ารายนี้มีบันทึกการโทรวันนี้ แต่สายนี้ไม่ถูกบันทึก">สายนี้ไม่ถูกบันทึกใน CRM</span>'
-                    : '<span class="text-[10px] text-slate-400" title="ยังไม่มีข้อมูล CRM ของช่วงเวลานี้ (สายอาจใหม่เกินไป หรือ CRM ยังไม่ซิงค์)">ยังไม่มีข้อมูล CRM</span>';
+                    ? '<span class="chip med" title="ลูกค้ารายนี้มีบันทึกการโทรวันนี้ แต่สายนี้ไม่ถูกบันทึก">สายนี้ไม่ถูกบันทึกใน CRM</span>'
+                    : '<span class="chip neutral" title="ยังไม่มีข้อมูล CRM ของช่วงเวลานี้ (สายอาจใหม่เกินไป หรือ CRM ยังไม่ซิงค์)">ยังไม่มีข้อมูล CRM</span>';
 
         const orderCell = (c.orders || []).length
-            ? c.orders.map(o => `<div class="whitespace-nowrap">
-                    <span class="font-mono text-[10px]">${esc(o.id)}</span>
-                    <span class="text-[10px] font-bold px-1 py-0.5 rounded ${o.is_returned ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}">${esc(o.order_status)}</span>
-                    <span class="text-[10px] text-slate-400">${Number(o.total_amount).toLocaleString()}฿</span>
+            ? c.orders.map(o => `<div style="white-space:nowrap;margin-top:2px">
+                    <span class="mono-ish" style="font-size:11px">${esc(o.id)}</span>
+                    <span class="chip ${o.is_returned ? 'crit' : 'info'}">${esc(o.order_status)}</span>
+                    <span class="faint">${Number(o.total_amount).toLocaleString()}฿</span>
                     ${o.days_after > 0
-                        ? `<span class="text-[10px] text-amber-600" title="เปิดออเดอร์หลังโทร ${o.days_after} วัน — อาจไม่ได้มาจากสายนี้">+${o.days_after} วัน</span>`
-                        : '<span class="text-[10px] text-emerald-600" title="เปิดออเดอร์วันเดียวกับที่โทร">วันเดียวกัน</span>'}
+                        ? `<span class="med" title="เปิดออเดอร์หลังโทร ${o.days_after} วัน — อาจไม่ได้มาจากสายนี้">+${o.days_after} วัน</span>`
+                        : '<span class="ok" title="เปิดออเดอร์วันเดียวกับที่โทร">วันเดียวกัน</span>'}
                 </div>`).join('')
-            : '<span class="text-[11px] text-slate-300">—</span>';
+            : '<span class="faint">—</span>';
 
         tr.innerHTML = `
-            <td class="px-3 py-2 whitespace-nowrap">${esc(c.call_date || '')} <span class="text-slate-400">${esc((c.call_time || '').slice(0,5))}</span></td>
-            <td class="px-3 py-2 font-mono text-[11px]">
+            <td class="dim" style="white-space:nowrap">${esc(c.call_date || '')} ${esc((c.call_time || '').slice(0,5))}</td>
+            <td class="mono-ish faint">
                 ${esc(c.call_code || '-')}
-                <span class="text-[10px] font-bold px-1 py-0.5 rounded ${c.direction === 'IN' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">${esc(c.direction || '-')}</span>
+                <span class="badge-dir ${c.direction === 'IN' ? 'in' : 'out'}">${esc(c.direction || '-')}</span>
             </td>
-            <td class="px-3 py-2">
-                <div class="font-medium">${esc(c.employee_name || '—')}</div>
-                <div class="text-[11px] text-slate-400 font-mono">${fmtPhone(c.caller_phone)}</div>
+            <td>
+                <div class="emp">${esc(c.employee_name || '—')}</div>
+                <div class="emp-sub mono-ish">${fmtPhone(c.caller_phone)}</div>
             </td>
-            <td class="px-3 py-2">
-                <div class="font-medium">${esc(c.customer_name || '—')}</div>
-                <div class="text-[11px] text-slate-400 font-mono">${fmtPhone(c.receiver_phone)}</div>
+            <td>
+                <div class="emp">${esc(c.customer_name || '—')}</div>
+                <div class="emp-sub mono-ish">${fmtPhone(c.receiver_phone)}</div>
             </td>
-            <td class="px-3 py-2 text-right font-semibold ${c.duration_seconds >= 3600 ? 'text-rose-600' : c.duration_seconds >= 2700 ? 'text-orange-600' : 'text-slate-700'}">${fmtDur(c.duration_seconds)}</td>
-            <td class="px-3 py-2">${resultCell}</td>
-            <td class="px-3 py-2">${orderCell}</td>
-            <td class="px-3 py-2 text-center">
-                <a href="../audio_proxy.php?id=${encodeURIComponent(c.gdrive_file_id)}" target="_blank"
-                   class="inline-flex items-center gap-1 text-sky-600 hover:text-sky-800" title="เปิดไฟล์เสียง">
-                    <i class="w-4 h-4" data-lucide="play-circle"></i>
-                </a>
+            <td class="num mono-ish" style="${c.duration_seconds >= 3600 ? 'color:var(--crit);font-weight:600' : c.duration_seconds >= 2700 ? 'color:var(--high);font-weight:600' : ''}">${fmtDur(c.duration_seconds)}</td>
+            <td>${resultCell}</td>
+            <td>${orderCell}</td>
+            <td class="ctr">
+                <a href="../audio_proxy.php?id=${encodeURIComponent(c.gdrive_file_id)}" target="_blank" class="iconbtn play" title="เปิดไฟล์เสียง"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z" fill="currentColor" stroke="none"/></svg></a>
             </td>`;
-        callBody.appendChild(tr);
+        return tr;
     });
-    if (!(data.calls || []).length) callBody.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">ไม่พบสายที่ยาวถึงเกณฑ์นี้</td></tr>';
-    document.getElementById('listCount').textContent = `(${(data.calls || []).length} รายการ)`;
 
     lucide.createIcons();
 }

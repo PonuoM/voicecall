@@ -4,33 +4,31 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Call Recording Dashboard</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="ui/assets/theme.css?v=11" />
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .fade-in { animation: fadeIn 0.3s ease-in; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse-border { 0%,100% { border-color: rgba(14,165,233,0.3); } 50% { border-color: rgba(14,165,233,0.8); } }
-        .playing-row { background: linear-gradient(90deg, rgba(14,165,233,0.06) 0%, rgba(14,165,233,0.02) 100%) !important; border-left: 3px solid #0ea5e9; animation: pulse-border 2s infinite; }
+        @keyframes pulse-border { 0%,100% { border-color: rgba(20,107,92,0.3); } 50% { border-color: rgba(20,107,92,0.8); } }
+        .playing-row { background: var(--accent-wash) !important; }
+        .playing-row td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
         #audio-player { transition: transform 0.3s ease, opacity 0.3s ease; }
         #audio-player.hidden-player { transform: translateY(100px); opacity: 0; pointer-events: none; }
-        .drop-zone { border: 2px dashed #94a3b8; transition: all 0.3s; }
-        .drop-zone.drag-over { border-color: #0ea5e9; background: rgba(14,165,233,0.05); }
-        .upload-progress { transition: width 0.3s ease; }
-        .modal-backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
-        .login-bg { background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 50%, #1e3a5f 100%); }
-        .login-card { animation: fadeIn 0.5s ease-out; }
+        .drop-zone { border: 2px dashed var(--line-strong); border-radius: var(--radius); transition: all 0.3s; cursor: pointer; text-align: center; padding: 32px; }
+        .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: var(--accent-wash); }
+        .login-bg { background: linear-gradient(135deg, #146b5c 0%, #0e4e43 50%, #0b3d35 100%); position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; }
+        .login-card { animation: fadeIn 0.5s ease-out; width: 100%; max-width: 380px; padding: 0 16px; }
         .shake { animation: shake 0.5s; }
         @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
         .has-session #loginScreen { display: none; }
     </style>
     <script>
+        // Pre-paint theme: apply saved theme before first render, so navigating between pages
+        // doesn't flash light before switching to the saved dark (or vice versa).
+        try {
+            var t = localStorage.getItem('vc-theme');
+            if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
         // Pre-paint session check: hide the login overlay before first render when a session
         // already exists, so navigating back from another tab/page doesn't flash the login screen.
         try {
@@ -40,399 +38,344 @@
         } catch (e) {}
     </script>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body>
 
 <!-- ===== LOGIN SCREEN ===== -->
-<div id="loginScreen" class="fixed inset-0 z-[200] login-bg flex items-center justify-center">
-    <div class="login-card w-full max-w-md mx-4">
-        <div class="text-center mb-8">
-            <div class="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <i class="w-8 h-8 text-white" data-lucide="mic"></i>
+<div id="loginScreen" class="login-bg">
+    <div class="login-card">
+        <div style="text-align:center;margin-bottom:24px">
+            <div style="width:52px;height:52px;background:rgba(255,255,255,.15);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px">
+                <i data-lucide="mic" style="color:#fff;width:24px;height:24px"></i>
             </div>
-            <h1 class="text-2xl font-bold text-white">Call Recordings</h1>
-            <p class="text-sky-200 text-sm mt-1">เข้าสู่ระบบเพื่อใช้งาน Dashboard</p>
+            <h1 style="color:#fff;font-size:21px;font-weight:700;margin:0">Audit Rec</h1>
+            <p style="color:rgba(255,255,255,.72);font-size:12.5px;margin:4px 0 0">เข้าสู่ระบบเพื่อใช้งาน Dashboard</p>
         </div>
-        <div class="bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1.5">Username</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="w-4 h-4 text-slate-400" data-lucide="user"></i>
-                    </div>
-                    <input id="loginUsername" type="text" autocomplete="username"
-                        class="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500"
-                        placeholder="ชื่อผู้ใช้" />
-                </div>
+        <div class="card" style="padding:22px">
+            <div class="field" style="margin-bottom:14px">
+                <label>Username</label>
+                <input id="loginUsername" type="text" autocomplete="username" placeholder="ชื่อผู้ใช้" />
             </div>
-            <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="w-4 h-4 text-slate-400" data-lucide="lock"></i>
-                    </div>
-                    <input id="loginPassword" type="password" autocomplete="current-password"
-                        class="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500"
-                        placeholder="รหัสผ่าน" />
-                </div>
+            <div class="field" style="margin-bottom:16px">
+                <label>Password</label>
+                <input id="loginPassword" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" />
             </div>
-            <div id="loginError" class="text-red-500 text-sm font-medium hidden"></div>
-            <button id="loginBtn" onclick="doLogin()"
-                class="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2">
-                <i class="w-4 h-4" data-lucide="log-in"></i> เข้าสู่ระบบ
+            <div id="loginError" class="errbox hidden" style="margin-bottom:14px"></div>
+            <button id="loginBtn" onclick="doLogin()" class="btn primary" style="width:100%;justify-content:center">
+                <i data-lucide="log-in"></i> เข้าสู่ระบบ
             </button>
         </div>
-        <p class="text-center text-sky-300 text-xs mt-4">ข้อมูลจาก ระบบ MiniERP</p>
+        <p style="text-align:center;color:rgba(255,255,255,.55);font-size:11px;margin-top:16px">ข้อมูลจาก ระบบ MiniERP</p>
     </div>
 </div>
 
-<!-- Header -->
-<header class="bg-white border-b border-slate-200 sticky top-0 z-50">
-    <div class="max-w-[1600px] mx-auto px-4 h-12 flex items-center justify-between">
-        <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 bg-sky-600 rounded-lg flex items-center justify-center text-white">
-                <i class="w-4 h-4" data-lucide="mic"></i>
-            </div>
-            <div>
-                <h1 class="text-base leading-tight font-bold tracking-tight text-slate-800">Call Recordings</h1>
-                <p class="text-[10px] leading-tight text-slate-500 font-medium uppercase tracking-wider">Google Drive Dashboard</p>
-            </div>
+<div class="shell">
+<aside class="rail" id="rail">
+    <div class="rail-brand">
+        <div class="rail-mark"><i data-lucide="audio-lines"></i></div>
+        <div class="txt"><div class="name">Audit Rec<span class="rec-dot"></span></div></div>
+        <button class="rail-toggle" id="railCollapseBtn" title="หุบ/ขยายเมนู" aria-label="หุบ/ขยายเมนู">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        </button>
+    </div>
+    <div class="rail-group-label">ข้อมูลสาย</div>
+    <nav>
+        <a href="./index.html" class="rail-item active"><i data-lucide="phone"></i><span class="lbl">รายการสาย</span></a>
+        <a href="./ui/sync_dashboard.html" class="rail-item"><i data-lucide="refresh-cw"></i><span class="lbl">Sync ไฟล์เสียง</span></a>
+        <a href="./ui/fraud_dashboard.html" class="rail-item"><i data-lucide="shield-alert"></i><span class="lbl">ตรวจทุจริต</span></a>
+        <a href="./ui/long_calls.html" class="rail-item"><i data-lucide="timer"></i><span class="lbl">สายยาวผิดปกติ</span></a>
+        <a href="./ui/ghost_numbers.html" class="rail-item"><i data-lucide="user-x"></i><span class="lbl">เบอร์ต้องสงสัย</span></a>
+    </nav>
+    <div class="rail-group-label">ระบบ</div>
+    <nav>
+        <a id="btnCost" href="./ui/cost_dashboard.html" class="rail-item hidden"><i data-lucide="wallet"></i><span class="lbl">Cost</span></a>
+        <a id="btnCompanySettings" href="./ui/super_admin_companies.html" class="rail-item hidden"><i data-lucide="settings"></i><span class="lbl">จัดการบริษัท</span></a>
+        <a id="btnAIPrompts" href="./ui/super_admin_prompts.html" class="rail-item hidden"><i data-lucide="bot"></i><span class="lbl">ตั้งค่า AI</span></a>
+    </nav>
+    <div class="rail-foot">
+        <div class="rail-user">
+            <div class="avatar" id="railAvatar">?</div>
+            <span id="headerUserName" class="who hidden"></span>
         </div>
-        <!-- Global Search -->
-        <div class="hidden md:flex flex-1 max-w-lg mx-8">
-            <div class="relative w-full">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i class="w-4 h-4 text-slate-400" data-lucide="search"></i>
-                </div>
-                <input id="globalSearch" oninput="debounceSearch()"
-                    class="block w-full pl-10 pr-3 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-sky-500 focus:border-sky-500"
-                    placeholder="ค้นหาเบอร์โทร, Call ID... (Ctrl+K)" type="text" />
-            </div>
-        </div>
-        <!-- Auth + Stats -->
-        <div class="flex items-center space-x-3">
-            <div id="statTotal" class="hidden sm:flex items-center gap-1.5 bg-sky-50 text-sky-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
-                <i class="w-3.5 h-3.5" data-lucide="phone"></i><span>—</span>
-            </div>
-            <div id="statIn" class="hidden sm:flex items-center gap-1.5 bg-green-50 text-green-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
-                <i class="w-3.5 h-3.5" data-lucide="phone-incoming"></i><span>—</span>
-            </div>
-            <div id="statOut" class="hidden sm:flex items-center gap-1.5 bg-orange-50 text-orange-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
-                <i class="w-3.5 h-3.5" data-lucide="phone-outgoing"></i><span>—</span>
-            </div>
-            <!-- User Info + Logout -->
-            <div id="userInfoHeader" class="flex items-center gap-1">
-                <span id="headerUserName" class="text-xs font-medium text-slate-600 hidden mr-1"></span>
-                <button id="authBtn" onclick="handleAuth()"
-                    class="hidden flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">
-                    <i class="w-4 h-4" data-lucide="cloud"></i>
-                    <span id="authLabel">เชื่อมต่อ Google Drive</span>
-                </button>
-                <button id="logoutBtn" onclick="doLogout()" title="ออกจากระบบ"
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors">
-                    <i class="w-4 h-4" data-lucide="log-out"></i> ออกจากระบบ
-                </button>
-            </div>
+        <button id="authBtn" onclick="handleAuth()" class="btn small primary hidden">
+            <i data-lucide="cloud"></i>
+            <span class="lbl" id="authLabel">เชื่อมต่อ Google Drive</span>
+        </button>
+        <div class="rail-foot-row">
+            <button class="btn icon" id="themeToggle" title="สลับธีมสว่าง/มืด">
+                <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+                <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>
+            </button>
+            <button id="logoutBtn" onclick="doLogout()" title="ออกจากระบบ" class="btn small">
+                <i data-lucide="log-out"></i><span class="lbl">ออกจากระบบ</span>
+            </button>
         </div>
     </div>
-    <!-- Nav row: text buttons (moved out of the top row — it was overflowing) -->
-    <nav class="max-w-[1600px] mx-auto px-4 h-10 flex items-center gap-1 border-t border-slate-100 overflow-x-auto">
-        <a href="./ui/sync_dashboard.html" target="_blank"
-            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 transition-colors whitespace-nowrap">
-            <i class="w-4 h-4 text-indigo-500" data-lucide="refresh-cw"></i> Sync ไฟล์เสียง
-        </a>
-        <a href="./ui/fraud_dashboard.html" target="_blank"
-            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-rose-700 hover:bg-rose-50 transition-colors whitespace-nowrap">
-            <i class="w-4 h-4 text-rose-500" data-lucide="shield-alert"></i> ตรวจทุจริต
-        </a>
-        <a href="./ui/long_calls.html" target="_blank"
-            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-amber-700 hover:bg-amber-50 transition-colors whitespace-nowrap">
-            <i class="w-4 h-4 text-amber-500" data-lucide="timer"></i> สายยาวผิดปกติ
-        </a>
-        <a href="./ui/ghost_numbers.html" target="_blank"
-            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap">
-            <i class="w-4 h-4 text-purple-500" data-lucide="user-x"></i> เบอร์ต้องสงสัย
-        </a>
-        <a id="btnCompanySettings" href="./ui/super_admin_companies.html" target="_blank"
-            class="hidden items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-amber-700 hover:bg-amber-50 transition-colors whitespace-nowrap">
-            <i class="w-4 h-4 text-amber-500" data-lucide="settings"></i> จัดการบริษัท
-        </a>
-        <a id="btnAIPrompts" href="./ui/super_admin_prompts.html" target="_blank"
-            class="hidden items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap">
-            <i class="w-4 h-4 text-purple-500" data-lucide="bot"></i> ตั้งค่า AI
-        </a>
-        <a id="btnCost" href="./ui/cost_dashboard.html" target="_blank"
-            class="hidden items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors whitespace-nowrap">
-            <i class="w-4 h-4 text-emerald-600" data-lucide="wallet"></i> Cost
-        </a>
-    </nav>
+</aside>
+<div class="main">
+
+<header class="topbar">
+    <div>
+        <h1>รายการสาย</h1>
+        <div class="path" id="pageSub">Google Drive Dashboard</div>
+    </div>
+    <!-- Global Search -->
+    <div style="flex:1;max-width:420px;margin:0 24px">
+        <div class="field" style="position:relative">
+            <input id="globalSearch" oninput="debounceSearch()" type="text"
+                placeholder="ค้นหาเบอร์โทร, Call ID... (Ctrl+K)" style="padding-left:30px" />
+            <i data-lucide="search" style="position:absolute;left:8px;top:8px;width:14px;height:14px;color:var(--ink-faint)"></i>
+        </div>
+    </div>
+    <!-- Stats -->
+    <div class="actions">
+        <div id="statTotal" class="chip info"><i data-lucide="phone"></i><span><span class="mini-spin"></span></span></div>
+        <div id="statIn" class="chip ok"><i data-lucide="phone-incoming"></i><span><span class="mini-spin"></span></span></div>
+        <div id="statOut" class="chip high"><i data-lucide="phone-outgoing"></i><span><span class="mini-spin"></span></span></div>
+    </div>
 </header>
 
-<main class="max-w-[1600px] mx-auto p-3 lg:p-4 space-y-4">
+<main class="content">
 
     <!-- Source & Filters -->
-    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
-        <div class="flex flex-wrap items-end gap-2">
-            <div class="w-48">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">แหล่งข้อมูล</label>
-                <select id="dataSource" onchange="switchSource()"
-                    class="form-select w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500">
-                    <option value="local">📁 Local (recordings.json)</option>
-                    <option value="gdrive" selected>☁️ Google Drive</option>
+    <div class="filterbar">
+        <div class="field">
+            <label>แหล่งข้อมูล</label>
+            <select id="dataSource" onchange="switchSource()">
+                <option value="local">Local (recordings.json)</option>
+                <option value="gdrive" selected>Google Drive</option>
+            </select>
+        </div>
+        <div id="companySelect" class="field">
+            <label>บริษัท</label>
+            <div style="display:flex;gap:4px">
+                <select id="companyFilter" onchange="handleCompanyChange()">
+                    <option value="">กำลังโหลด...</option>
                 </select>
-            </div>
-            <div id="companySelect" class="w-48">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">บริษัท</label>
-                <div class="flex gap-1">
-                    <select id="companyFilter" onchange="handleCompanyChange()"
-                        class="form-select flex-1 rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500">
-                        <option value="">กำลังโหลด...</option>
-                    </select>
-                    <button id="addCompanyBtn" onclick="showAddCompanyModal()" title="เพิ่มบริษัทใหม่"
-                        class="hidden p-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors">
-                        <i class="w-4 h-4" data-lucide="plus"></i>
-                    </button>
-                </div>
-            </div>
-            <div id="dateRangeSelect" class="flex gap-2">
-                <div class="w-40">
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">จากวันที่</label>
-                    <input id="dateFrom" type="date" onchange="handleSearch()"
-                        class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500" />
-                </div>
-                <div class="w-40">
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ถึงวันที่</label>
-                    <input id="dateTo" type="date" onchange="handleSearch()"
-                        class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500" />
-                </div>
-            </div>
-            <div class="w-36">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ทิศทาง</label>
-                <select id="dirFilter" onchange="handleSearch()"
-                    class="form-select w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500">
-                    <option value="">ทั้งหมด</option>
-                    <option value="IN">สายเข้า (IN)</option>
-                    <option value="OUT">สายออก (OUT)</option>
-                </select>
-            </div>
-            <div class="w-36">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ยาวตั้งแต่ (นาที)</label>
-                <input id="minDuration" type="number" min="0" step="1" placeholder="เช่น 30" onchange="handleSearch()"
-                    class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500" />
-            </div>
-            <div class="flex-1 min-w-[200px]">
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1 ml-1">ค้นหาเบอร์โทร</label>
-                <input id="phoneSearch" type="text" oninput="debounceSearch()"
-                    class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500"
-                    placeholder="เช่น 0945547598" />
-            </div>
-            <div class="flex gap-2">
-                <button onclick="resetFilters()"
-                    class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm">
-                    <i class="w-4 h-4" data-lucide="rotate-ccw"></i> รีเซ็ต
-                </button>
-                <button id="syncIndexBtn" onclick="syncDriveIndex()"
-                    class="bg-sky-500 hover:bg-sky-600 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
-                    <i class="w-4 h-4" data-lucide="refresh-cw"></i> ซิงค์เสียงล่าสุด
-                </button>
-                <button id="uploadBtn" onclick="showUploadModal()"
-                    class="hidden bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
-                    <i class="w-4 h-4" data-lucide="upload-cloud"></i> อัปโหลด
+                <button id="addCompanyBtn" onclick="showAddCompanyModal()" title="เพิ่มบริษัทใหม่" class="btn icon hidden" style="width:30px">
+                    <i data-lucide="plus"></i>
                 </button>
             </div>
         </div>
-    </section>
+        <div id="dateRangeSelect" style="display:flex;gap:8px">
+            <div class="field">
+                <label>จากวันที่</label>
+                <input id="dateFrom" type="date" onchange="handleSearch()" />
+            </div>
+            <div class="field">
+                <label>ถึงวันที่</label>
+                <input id="dateTo" type="date" onchange="handleSearch()" />
+            </div>
+        </div>
+        <div class="field">
+            <label>ทิศทาง</label>
+            <select id="dirFilter" onchange="handleSearch()">
+                <option value="">ทั้งหมด</option>
+                <option value="IN">สายเข้า (IN)</option>
+                <option value="OUT">สายออก (OUT)</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>ยาวตั้งแต่ (นาที)</label>
+            <input id="minDuration" type="number" min="0" step="1" placeholder="เช่น 30" onchange="handleSearch()" style="width:90px" />
+        </div>
+        <div class="field grow">
+            <label>ค้นหาเบอร์โทร</label>
+            <input id="phoneSearch" type="text" oninput="debounceSearch()" placeholder="เช่น 0945547598" />
+        </div>
+        <div class="btnrow">
+            <button onclick="resetFilters()" class="btn small"><i data-lucide="rotate-ccw"></i> รีเซ็ต</button>
+            <button id="syncIndexBtn" onclick="syncDriveIndex()" class="btn small primary"><i data-lucide="refresh-cw"></i> ซิงค์เสียงล่าสุด</button>
+            <button id="uploadBtn" onclick="showUploadModal()" class="btn small primary hidden"><i data-lucide="upload-cloud"></i> อัปโหลด</button>
+        </div>
+    </div>
 
     <!-- Loading -->
-    <div id="loadingState" class="text-center py-16">
-        <div class="inline-flex items-center gap-3 text-slate-500">
-            <svg class="animate-spin h-6 w-6" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-            </svg>
-            <span id="loadingText" class="text-sm font-medium">กำลังเชื่อมต่อ Google Drive...</span>
-        </div>
+    <div id="loadingState" class="loading-block">
+        <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10" opacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" opacity=".75"/></svg>
+        <p id="loadingText">กำลังเชื่อมต่อ Google Drive...</p>
     </div>
 
     <!-- Table -->
-    <section id="tableSection" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hidden">
-        <div class="px-6 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-            <span id="showingText" class="text-sm font-medium text-slate-600"></span>
-            <div class="flex items-center space-x-4">
-                <div class="flex items-center text-sm text-slate-500">
-                    <span class="mr-2">แสดง:</span>
-                    <select id="pageSize" onchange="changePageSize()"
-                        class="bg-transparent border-none focus:ring-0 text-sm font-semibold text-slate-700 p-0 pr-6">
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                    </select>
-                </div>
-                <div class="flex items-center space-x-1">
-                    <button onclick="prevPage()" class="p-1.5 hover:bg-slate-200 rounded transition-colors">
-                        <i class="w-4 h-4" data-lucide="chevron-left"></i>
-                    </button>
-                    <span id="pageInfo" class="text-xs text-slate-500 px-2 min-w-[80px] text-center"></span>
-                    <button onclick="nextPage()" class="p-1.5 hover:bg-slate-200 rounded transition-colors">
-                        <i class="w-4 h-4" data-lucide="chevron-right"></i>
-                    </button>
-                </div>
+    <section id="tableSection" class="hidden">
+        <div class="toolbar">
+            <span id="showingText"></span>
+            <div class="pager">
+                <span>แสดง:</span>
+                <select id="pageSize" onchange="changePageSize()">
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+                <button onclick="prevPage()" class="iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+                <span id="pageInfo"></span>
+                <button onclick="nextPage()" class="iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
             </div>
         </div>
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
-                <thead class="bg-slate-50/80 text-slate-500 text-[11px] uppercase tracking-wider font-bold border-b border-slate-200">
-                    <tr>
-                        <th class="px-4 py-3 w-8"></th>
-                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('id')">Call ID <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
-                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('date')">วันที่ & เวลา <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
-                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('caller')">สายโทร (Caller) <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
-                        <th class="px-4 py-3 text-center w-16">ทิศทาง</th>
-                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600" onclick="sortBy('receiver')">สายรับ (Receiver) <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
-                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600 text-right" onclick="sortBy('size')">ขนาด <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
-                        <th class="px-4 py-3 cursor-pointer hover:text-sky-600 text-right" onclick="sortBy('duration')">ระยะเวลา <i class="w-3 h-3 inline" data-lucide="arrow-up-down"></i></th>
-                        <th class="px-4 py-3">ผลขาย / ออเดอร์ (ERP)</th>
-                        <th class="px-4 py-3 text-right">เล่น</th>
-                        <th class="px-4 py-3 text-center">ดาวน์โหลด</th>
-                        <th class="px-4 py-3 text-center">ลิงก์</th>
-                        <th class="px-4 py-3 text-center">AI</th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody" class="divide-y divide-slate-100 text-sm"></tbody>
-            </table>
-        </div>
-        <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex justify-between items-center">
+        <table class="dense">
+            <thead>
+                <tr>
+                    <th style="width:20px"></th>
+                    <th style="cursor:pointer" onclick="sortBy('id')">Call ID</th>
+                    <th style="cursor:pointer" onclick="sortBy('date')">วันที่ &amp; เวลา</th>
+                    <th style="cursor:pointer" onclick="sortBy('caller')">สายโทร (Caller)</th>
+                    <th class="ctr">ทิศทาง</th>
+                    <th style="cursor:pointer" onclick="sortBy('receiver')">สายรับ (Receiver)</th>
+                    <th class="num" style="cursor:pointer" onclick="sortBy('size')">ขนาด</th>
+                    <th class="num" style="cursor:pointer" onclick="sortBy('duration')">ระยะเวลา</th>
+                    <th>ผลขาย / ออเดอร์ (ERP)</th>
+                    <th class="ctr">เล่น</th>
+                    <th class="ctr">ดาวน์โหลด</th>
+                    <th class="ctr">ลิงก์</th>
+                    <th class="ctr">AI</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+        <div style="display:flex;justify-content:space-between;padding:10px 2px;font-size:11px" class="faint">
             <span id="sourceInfo">ข้อมูลจาก Google Drive</span>
-            <span id="filteredCount" class="font-semibold"></span>
+            <span id="filteredCount"></span>
         </div>
     </section>
 </main>
 
+</div><!-- /.main -->
+</div><!-- /.shell -->
+
 <!-- Floating Audio Player -->
-<div id="audio-player" class="fixed bottom-6 right-6 w-96 bg-white shadow-2xl rounded-2xl border border-slate-200 p-4 z-50 hidden-player">
-    <div class="flex items-center justify-between mb-2">
-        <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-2">
-            <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> กำลังเล่น
-        </h4>
-        <button onclick="stopAudio()" class="text-slate-400 hover:text-red-500 transition-colors">
-            <i class="w-4 h-4" data-lucide="x"></i>
-        </button>
-    </div>
-    <div class="space-y-2">
-        <div id="playerInfo" class="flex flex-wrap items-center gap-x-3 gap-y-1"></div>
-        <div class="flex items-center gap-2 text-[10px] font-mono text-slate-400">
-            <span id="playerCaller">---</span>
-            <i class="w-3 h-3" data-lucide="arrow-right"></i>
-            <span id="playerReceiver">---</span>
+<div id="audio-player" class="card hidden-player" style="position:fixed;bottom:20px;right:20px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.25);z-index:50">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="section-title" style="margin:0;font-size:11px">
+            <span style="width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block"></span> กำลังเล่น
         </div>
-        <audio id="audioElement" controls class="w-full h-10 mt-1" style="border-radius:8px;"></audio>
+        <button onclick="stopAudio()" class="iconbtn"><i data-lucide="x"></i></button>
     </div>
+    <div id="playerInfo" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:6px"></div>
+    <div class="dim mono-ish" style="display:flex;align-items:center;gap:8px;font-size:10.5px;margin-bottom:6px">
+        <span id="playerCaller">---</span>
+        <i data-lucide="arrow-right" style="width:12px;height:12px"></i>
+        <span id="playerReceiver">---</span>
+    </div>
+    <audio id="audioElement" controls style="width:100%;height:38px;border-radius:8px"></audio>
 </div>
 
 <!-- Upload Modal -->
-<div id="uploadModal" class="fixed inset-0 z-[100] hidden">
-    <div class="modal-backdrop absolute inset-0" onclick="hideUploadModal()"></div>
-    <div class="relative mx-auto mt-20 w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 fade-in">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <i class="w-5 h-5 text-emerald-500" data-lucide="upload-cloud"></i>
-                อัปโหลดไฟล์เสียง
-            </h2>
-            <button onclick="hideUploadModal()" class="text-slate-400 hover:text-slate-600">
-                <i class="w-5 h-5" data-lucide="x"></i>
-            </button>
+<div id="uploadModal" class="modal-overlay hidden">
+    <div class="modal-panel" style="max-width:600px">
+        <div class="modal-head">
+            <h2><i data-lucide="upload-cloud"></i> อัปโหลดไฟล์เสียง</h2>
+            <button class="modal-close" onclick="hideUploadModal()"><i data-lucide="x"></i></button>
         </div>
-        <!-- Target folder info -->
-        <div class="bg-sky-50 rounded-lg p-3 mb-4 text-sm text-sky-800">
-            <div class="flex items-center gap-2 font-semibold mb-1">
-                <i class="w-4 h-4" data-lucide="folder"></i>
-                อัปโหลดไปที่:
+        <div class="modal-body">
+            <!-- Target folder info -->
+            <div class="explainer" style="margin-bottom:14px">
+                <div style="display:flex;align-items:center;gap:6px;font-weight:600;margin-bottom:4px">
+                    <i data-lucide="folder" style="width:14px;height:14px"></i> อัปโหลดไปที่:
+                </div>
+                <div id="uploadTargetPath" class="mono-ish" style="font-size:11px">เก็บข้อมูลไฟล์เสียง / Company = 1 / 202601 / 20260120</div>
+                <p style="font-size:10px;margin:4px 0 0">* ระบบจะสร้างโฟลเดอร์เดือน/วัน อัตโนมัติ จากชื่อไฟล์</p>
             </div>
-            <div id="uploadTargetPath" class="font-mono text-xs text-sky-600">เก็บข้อมูลไฟล์เสียง / Company = 1 / 202601 / 20260120</div>
-            <p class="text-[10px] text-sky-500 mt-1">* ระบบจะสร้างโฟลเดอร์เดือน/วัน อัตโนมัติ จากชื่อไฟล์</p>
-        </div>
-        <!-- Drop zone -->
-        <div id="dropZone" class="drop-zone rounded-xl p-8 text-center cursor-pointer mb-4"
-            onclick="document.getElementById('fileInput').click()"
-            ondragover="event.preventDefault(); this.classList.add('drag-over')"
-            ondragleave="this.classList.remove('drag-over')"
-            ondrop="handleFileDrop(event)">
-            <i class="w-12 h-12 text-slate-300 mx-auto mb-3" data-lucide="cloud-upload"></i>
-            <p class="text-sm font-medium text-slate-600">ลากไฟล์ .wav มาวางที่นี่</p>
-            <p class="text-xs text-slate-400 mt-1">หรือ คลิกเพื่อเลือกไฟล์</p>
-            <input type="file" id="fileInput" multiple accept=".wav" class="hidden" onchange="handleFileSelect(event)" />
-        </div>
-        <!-- File list -->
-        <div id="uploadFileList" class="max-h-48 overflow-y-auto space-y-2 mb-4 hidden"></div>
-        <!-- Progress -->
-        <div id="uploadProgress" class="hidden mb-4">
-            <div class="flex items-center justify-between text-sm mb-1">
-                <span id="uploadStatus" class="text-slate-600 font-medium">กำลังอัปโหลด...</span>
-                <span id="uploadPercent" class="text-sky-600 font-bold">0%</span>
+            <!-- Drop zone -->
+            <div id="dropZone" class="drop-zone" style="margin-bottom:14px"
+                onclick="document.getElementById('fileInput').click()"
+                ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                ondragleave="this.classList.remove('drag-over')"
+                ondrop="handleFileDrop(event)">
+                <i data-lucide="cloud-upload" class="faint" style="width:36px;height:36px;margin:0 auto 10px"></i>
+                <p style="font-size:13px;font-weight:500;margin:0">ลากไฟล์ .wav มาวางที่นี่</p>
+                <p class="faint" style="font-size:11px;margin:4px 0 0">หรือ คลิกเพื่อเลือกไฟล์</p>
+                <input type="file" id="fileInput" multiple accept=".wav" class="hidden" onchange="handleFileSelect(event)" />
             </div>
-            <div class="w-full bg-slate-200 rounded-full h-2">
-                <div id="uploadBar" class="bg-sky-500 h-2 rounded-full upload-progress" style="width: 0%"></div>
+            <!-- File list -->
+            <div id="uploadFileList" style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:14px" class="hidden"></div>
+            <!-- Progress -->
+            <div id="uploadProgress" class="hidden" style="margin-bottom:14px">
+                <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+                    <span id="uploadStatus">กำลังอัปโหลด...</span>
+                    <span id="uploadPercent" class="b">0%</span>
+                </div>
+                <div class="budget-bar"><div id="uploadBar" style="width:0%"></div></div>
             </div>
         </div>
-        <!-- Actions -->
-        <div class="flex justify-end gap-3">
-            <button onclick="hideUploadModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">ยกเลิก</button>
-            <button id="startUploadBtn" onclick="startUpload()" disabled
-                class="px-5 py-2 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2">
-                <i class="w-4 h-4" data-lucide="upload"></i> เริ่มอัปโหลด
-            </button>
+        <div class="modal-foot">
+            <button onclick="hideUploadModal()" class="btn small">ยกเลิก</button>
+            <button id="startUploadBtn" onclick="startUpload()" disabled class="btn small primary"><i data-lucide="upload"></i> เริ่มอัปโหลด</button>
         </div>
     </div>
 </div>
 
 <!-- Add Company Modal -->
-<div id="addCompanyModal" class="fixed inset-0 z-[100] hidden">
-    <div class="modal-backdrop absolute inset-0" onclick="hideAddCompanyModal()"></div>
-    <div class="relative mx-auto mt-32 w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 fade-in">
-        <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <i class="w-5 h-5 text-emerald-500" data-lucide="building-2"></i>
-                สร้างบริษัทใหม่
-            </h2>
-            <button onclick="hideAddCompanyModal()" class="text-slate-400 hover:text-slate-600">
-                <i class="w-5 h-5" data-lucide="x"></i>
-            </button>
+<div id="addCompanyModal" class="modal-overlay hidden">
+    <div class="modal-panel" style="max-width:420px">
+        <div class="modal-head">
+            <h2><i data-lucide="building-2"></i> สร้างบริษัทใหม่</h2>
+            <button class="modal-close" onclick="hideAddCompanyModal()"><i data-lucide="x"></i></button>
         </div>
-        <div class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">ชื่อโฟลเดอร์บริษัท</label>
-                <input id="newCompanyName" type="text"
-                    class="form-input w-full rounded-lg border-slate-200 text-sm py-1.5 focus:ring-sky-500"
-                    placeholder="เช่น Company = 2" />
-                <p class="text-xs text-slate-400 mt-1">จะสร้างโฟลเดอร์ใน "เก็บข้อมูลไฟล์เสียง" บน Google Drive</p>
+        <div class="modal-body">
+            <div class="field">
+                <label>ชื่อโฟลเดอร์บริษัท</label>
+                <input id="newCompanyName" type="text" placeholder="เช่น Company = 2" />
+                <p class="faint" style="font-size:11px;margin:4px 0 0">จะสร้างโฟลเดอร์ใน "เก็บข้อมูลไฟล์เสียง" บน Google Drive</p>
             </div>
-            <div class="flex justify-end gap-3">
-                <button onclick="hideAddCompanyModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">ยกเลิก</button>
-                <button onclick="createCompanyFolder()" class="px-5 py-2 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors flex items-center gap-2">
-                    <i class="w-4 h-4" data-lucide="folder-plus"></i> สร้าง
-                </button>
-            </div>
+        </div>
+        <div class="modal-foot">
+            <button onclick="hideAddCompanyModal()" class="btn small">ยกเลิก</button>
+            <button onclick="createCompanyFolder()" class="btn small primary"><i data-lucide="folder-plus"></i> สร้าง</button>
         </div>
     </div>
 </div>
 
 <!-- AI Insights Modal -->
-<div id="aiModal" class="fixed inset-0 z-[100] hidden">
-    <div class="modal-backdrop absolute inset-0" onclick="hideAiModal()"></div>
-    <div class="relative mx-auto mt-10 w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 fade-in max-h-[85vh] overflow-y-auto">
-        <div class="flex items-center justify-between mb-5">
-            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <i class="w-5 h-5 text-violet-500" data-lucide="sparkles"></i>
-                ผลวิเคราะห์ AI
-            </h2>
-            <button onclick="hideAiModal()" class="text-slate-400 hover:text-slate-600">
-                <i class="w-5 h-5" data-lucide="x"></i>
-            </button>
+<div id="aiModal" class="modal-overlay hidden">
+    <div class="modal-panel">
+        <div class="modal-head">
+            <h2><i data-lucide="sparkles"></i> ผลวิเคราะห์ AI</h2>
+            <button class="modal-close" onclick="hideAiModal()"><i data-lucide="x"></i></button>
         </div>
-        <div id="aiModalBody"></div>
+        <div class="modal-body" id="aiModalBody"></div>
+    </div>
+</div>
+
+<!-- Related Orders Modal -->
+<div id="ordersModal" class="modal-overlay hidden">
+    <div class="modal-panel" style="max-width:420px">
+        <div class="modal-head">
+            <h2><i data-lucide="package"></i> ออเดอร์ที่เกี่ยวข้อง</h2>
+            <button class="modal-close" onclick="hideOrdersModal()"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body" id="ordersModalBody"></div>
     </div>
 </div>
 
 <script>
+// Theme toggle: explicit choice overrides the OS preference and persists across reloads
+// (same 'vc-theme' localStorage key used across every page, so the choice follows you around).
+(function () {
+    var root = document.documentElement;
+    document.getElementById('themeToggle').addEventListener('click', function () {
+        var current = root.getAttribute('data-theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDarkNow = current ? current === 'dark' : prefersDark;
+        var next = isDarkNow ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem('vc-theme', next);
+    });
+})();
+
+// Sidebar collapse: smooth width transition (CSS), remembered across reloads.
+(function () {
+    var rail = document.getElementById('rail');
+    var btn = document.getElementById('railCollapseBtn');
+    if (localStorage.getItem('vc-rail-collapsed') === '1') rail.classList.add('collapsed');
+    btn.addEventListener('click', function () {
+        rail.classList.toggle('collapsed');
+        localStorage.setItem('vc-rail-collapsed', rail.classList.contains('collapsed') ? '1' : '0');
+    });
+})();
+
+// Icons are static (sidebar nav, header buttons) - render them now instead of waiting on this
+// page's own async data load, so the sidebar never sits blank/text-only for a couple seconds.
+lucide.createIcons();
+
 // ===== CONFIG =====
 const CONFIG = {
     API_KEY: 'AIzaSyCCIywRsoHuBzVTm-B-FA8N7VzAcECIEBE',
@@ -491,7 +434,7 @@ async function doLogin() {
     } catch (err) {
         showLoginError('ไม่สามารถเชื่อมต่อ API ได้: ' + err.message);
     }
-    btn.disabled = false; btn.innerHTML = '<i class="w-4 h-4" data-lucide="log-in"></i> เข้าสู่ระบบ'; lucide.createIcons();
+    btn.disabled = false; btn.innerHTML = '<i data-lucide="log-in"></i> เข้าสู่ระบบ'; lucide.createIcons();
 }
 
 function showLoginError(msg) {
@@ -519,6 +462,7 @@ function showDashboard() {
     document.getElementById('loginScreen').classList.add('hidden');
     document.getElementById('headerUserName').textContent = loggedInUser.name + ' (' + loggedInUser.company_name + ')';
     document.getElementById('headerUserName').classList.remove('hidden');
+    document.getElementById('railAvatar').textContent = (loggedInUser.name || '?').trim().charAt(0).toUpperCase();
     // Show Google Drive connect button after DB login
     document.getElementById('authBtn').classList.remove('hidden');
     
@@ -574,9 +518,8 @@ async function onSignedIn() {
     // No need to fetch userinfo — we have name from DB login
     userName = loggedInUser ? loggedInUser.name : 'User';
 
-    document.getElementById('authLabel').textContent = '✓ เชื่อมต่อแล้ว';
-    document.getElementById('authBtn').classList.remove('bg-emerald-500', 'hover:bg-emerald-600');
-    document.getElementById('authBtn').classList.add('bg-slate-500', 'hover:bg-slate-600');
+    document.getElementById('authLabel').textContent = 'เชื่อมต่อแล้ว';
+    document.getElementById('authBtn').classList.remove('primary');
     document.getElementById('uploadBtn').classList.remove('hidden');
     document.getElementById('addCompanyBtn').classList.remove('hidden');
     lucide.createIcons();
@@ -584,8 +527,7 @@ async function onSignedIn() {
 
 function onSignedOut() {
     document.getElementById('authLabel').textContent = 'เชื่อมต่อ Google Drive';
-    document.getElementById('authBtn').classList.add('bg-emerald-500', 'hover:bg-emerald-600');
-    document.getElementById('authBtn').classList.remove('bg-slate-500', 'hover:bg-slate-600');
+    document.getElementById('authBtn').classList.add('primary');
     document.getElementById('uploadBtn').classList.add('hidden');
     document.getElementById('addCompanyBtn').classList.add('hidden');
     lucide.createIcons();
@@ -747,7 +689,7 @@ async function loadLocalData() {
         allData = await res.json();
         filtered = [...allData]; updateStats(filtered); renderTable(); setLoading(false);
         document.getElementById('sourceInfo').textContent = 'ข้อมูลจาก recordings.json (Local)';
-    } catch (err) { setLoading(true, '❌ ' + err.message); }
+    } catch (err) { setLoading(true, err.message); }
 }
 
 // Recursively find ALL WAV files in all sub-folders
@@ -789,9 +731,9 @@ async function loadGDriveCompanies() {
         else {
             allData = []; filtered = []; updateStats([]); renderTable();
             setLoading(false);
-            document.getElementById('sourceInfo').textContent = `❌ ไม่พบโฟลเดอร์สำหรับบริษัทของคุณ (Company = ${loggedInUser?.company_id})`;
+            document.getElementById('sourceInfo').textContent = `ไม่พบโฟลเดอร์สำหรับบริษัทของคุณ (Company = ${loggedInUser?.company_id})`;
         }
-    } catch (err) { setLoading(true, '❌ ' + err.message); }
+    } catch (err) { setLoading(true, err.message); }
 }
 
 // Cache survives across tabs/logins (localStorage, not sessionStorage) with a TTL. In practice
@@ -849,7 +791,7 @@ async function loadCompanyFiles(companyFolderId) {
         allData = cached;
         setDateRangeFromData();
         filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
-        document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์ (cached)`;
+        document.getElementById('sourceInfo').textContent = `Google Drive — ${allData.length} ไฟล์ (cached)`;
         syncAiStatusFromServer();
         return;
     }
@@ -862,7 +804,7 @@ async function loadCompanyFiles(companyFolderId) {
         allData.sort((a,b) => (b.date+b.time).localeCompare(a.date+a.time));
         setDateRangeFromData();
         filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
-        document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์ (จาก index)`;
+        document.getElementById('sourceInfo').textContent = `Google Drive — ${allData.length} ไฟล์ (จาก index)`;
         syncAiStatusFromServer();
         return;
     }
@@ -884,7 +826,7 @@ async function loadCompanyFiles(companyFolderId) {
     allData.sort((a,b) => (b.date+b.time).localeCompare(a.date+a.time));
     setDateRangeFromData();
     filtered = [...allData]; updateStats(filtered); handleSearch(); setLoading(false);
-    document.getElementById('sourceInfo').textContent = `☁️ Google Drive — ${allData.length} ไฟล์`;
+    document.getElementById('sourceInfo').textContent = `Google Drive — ${allData.length} ไฟล์`;
     syncAiStatusFromServer();
 }
 
@@ -934,7 +876,7 @@ async function syncDriveIndex() {
     const btn = document.getElementById('syncIndexBtn');
     const originalHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="w-4 h-4 animate-spin" data-lucide="loader-2"></i> กำลังซิงค์... (อาจใช้เวลาหลายนาที)';
+    btn.innerHTML = '<i class="spin" data-lucide="loader-2"></i> กำลังซิงค์... (อาจใช้เวลาหลายนาที)';
     lucide.createIcons();
 
     try {
@@ -1107,16 +1049,14 @@ function copyDriveLink(fileId, btn) {
     const link = `https://drive.google.com/file/d/${fileId}/view`;
 
     const showSuccess = () => {
-        const icon = btn.querySelector('i');
-        const oldIcon = icon.getAttribute('data-lucide');
+        const icon = btn.querySelector('svg') || btn.querySelector('i');
+        const oldIcon = icon.getAttribute('data-lucide') || 'link';
         icon.setAttribute('data-lucide', 'check');
-        icon.classList.remove('text-slate-400');
-        icon.classList.add('text-green-500');
+        btn.style.color = 'var(--ok)';
         lucide.createIcons();
         setTimeout(() => {
-            icon.setAttribute('data-lucide', oldIcon);
-            icon.classList.remove('text-green-500');
-            icon.classList.add('text-slate-400');
+            btn.querySelector('svg').setAttribute('data-lucide', oldIcon);
+            btn.style.color = '';
             lucide.createIcons();
         }, 2000);
     };
@@ -1166,43 +1106,45 @@ function renderTable() {
     document.getElementById('pageInfo').textContent = `หน้า ${currentPage} / ${totalPages}`;
     document.getElementById('filteredCount').textContent = filtered.length===allData.length ? '' : `กรอง ${filtered.length.toLocaleString()} จาก ${allData.length.toLocaleString()}`;
     let html = '';
-    if (!page.length) html = '<tr><td colspan="13" class="px-4 py-12 text-center text-slate-400"><div class="flex flex-col items-center gap-2"><i class="w-12 h-12 text-slate-200" data-lucide="search-x"></i><span>ไม่พบรายการ</span></div></td></tr>';
+    if (!page.length) html = '<tr><td colspan="13" class="table-empty"><i data-lucide="search-x" style="width:32px;height:32px;margin:0 auto 8px;display:block;opacity:.4"></i>ไม่พบรายการ</td></tr>';
     for (const r of page) {
         const uid = r.id+r.date+r.time, isP = currentPlayingId===uid;
         const aiCell = renderAiCell(uid, r);
         const dir = r.direction==='IN'
-            ? '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full"><i class="w-3 h-3" data-lucide="phone-incoming"></i>IN</span>'
-            : '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full"><i class="w-3 h-3" data-lucide="phone-outgoing"></i>OUT</span>';
+            ? '<span class="badge-dir in">IN</span>'
+            : '<span class="badge-dir out">OUT</span>';
         const pd = JSON.stringify(r).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-        html += `<tr class="hover:bg-sky-50/40 transition-colors ${isP?'playing-row':''} fade-in">
-            <td class="px-4 py-3"><i class="w-4 h-4 ${r.direction==='IN'?'text-green-400':'text-orange-400'}" data-lucide="volume-2"></i></td>
-            <td class="px-4 py-3"><span class="font-mono font-semibold text-slate-700 text-xs bg-slate-100 px-2 py-0.5 rounded">${r.id}</span></td>
-            <td class="px-4 py-3"><div class="flex flex-col"><span class="text-slate-700 font-medium">${formatDate(r.date)}</span><span class="text-xs text-slate-400 font-mono">${r.time}</span></div></td>
-            <td class="px-4 py-3 font-mono text-slate-600 text-xs">${formatPhone(r.caller)}</td>
-            <td class="px-4 py-3 text-center">${dir}</td>
-            <td class="px-4 py-3 font-mono text-slate-600 text-xs">
+        html += `<tr class="${isP?'playing-row':''}">
+            <td><span class="play-dot ${r.direction==='IN'?'in':'out'}"></span></td>
+            <td class="mono-ish faint">${r.id}</td>
+            <td class="dim">${formatDate(r.date)} <span class="faint">${r.time}</span></td>
+            <td class="mono-ish">${formatPhone(r.caller)}</td>
+            <td class="ctr">${dir}</td>
+            <td class="mono-ish dim">
                 ${formatPhone(r.receiver)}
-                ${r.fileId ? `<div class="text-[11px] text-slate-400 font-sans" data-cust="${r.fileId}"></div>` : ''}
+                ${r.fileId ? `<div class="faint" style="font-size:11px" data-cust="${r.fileId}"></div>` : ''}
             </td>
-            <td class="px-4 py-3 text-right text-xs text-slate-400">${formatSize(r.size)}</td>
-            <td class="px-4 py-3 text-right text-xs text-slate-500 font-mono">${formatDuration(r)}</td>
-            <td class="px-4 py-3 text-xs" ${r.fileId ? `data-outcome="${r.fileId}"` : ''}>${r.fileId ? '<span class="text-slate-300">…</span>' : '<span class="text-slate-300">-</span>'}</td>
-            <td class="px-4 py-3 text-right">
-                <button onclick='playAudio(${pd})' class="p-1.5 ${isP?'bg-sky-600 text-white':'text-sky-600 hover:bg-sky-100'} rounded-lg transition-all" title="เล่น">
-                    <i class="w-5 h-5" data-lucide="${isP?'pause-circle':'play-circle'}"></i>
+            <td class="num faint">${formatSize(r.size)}</td>
+            <td class="num mono-ish">${formatDuration(r)}</td>
+            <td ${r.fileId ? `data-outcome="${r.fileId}"` : ''}>${r.fileId ? '<span class="faint">…</span>' : '<span class="faint">-</span>'}</td>
+            <td class="ctr">
+                <button onclick='playAudio(${pd})' class="iconbtn play" title="เล่น">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${isP
+                        ? '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/>'
+                        : '<circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z" fill="currentColor" stroke="none"/>'}</svg>
                 </button>
             </td>
-            <td class="px-4 py-3 text-center">
-                <button onclick='downloadAudio(${pd})' class="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all" title="ดาวน์โหลด">
-                    <i class="w-5 h-5" data-lucide="download"></i>
+            <td class="ctr">
+                <button onclick='downloadAudio(${pd})' class="iconbtn" title="ดาวน์โหลด">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 21h16"/></svg>
                 </button>
             </td>
-            <td class="px-4 py-3 text-center">
-                ${r.fileId ? `<button onclick="copyDriveLink('${r.fileId}', this)" class="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all" title="คัดลอกลิงก์ Google Drive">
-                    <i class="w-5 h-5" data-lucide="link"></i>
-                </button>` : `<span class="text-xs text-slate-300">-</span>`}
+            <td class="ctr">
+                ${r.fileId ? `<button onclick="copyDriveLink('${r.fileId}', this)" class="iconbtn" title="คัดลอกลิงก์ Google Drive">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H7a5 5 0 1 1 0-10h2m6 0h2a5 5 0 1 1 0 10h-2M8 12h8"/></svg>
+                </button>` : `<span class="faint">-</span>`}
             </td>
-            <td class="px-4 py-3 text-center">${aiCell}</td></tr>`;
+            <td class="ctr">${aiCell}</td></tr>`;
     }
     tbody.innerHTML = html; lucide.createIcons();
     loadOutcomesForPage(page);
@@ -1242,27 +1184,44 @@ function paintOutcome(fileId, o) {
     if (custCell) custCell.textContent = (o && o.customer_name) ? o.customer_name : '';
     if (!cell) return;
 
-    if (!o) { cell.innerHTML = '<span class="text-slate-300">-</span>'; return; }
+    if (!o) { cell.innerHTML = '<span class="faint">-</span>'; return; }
 
     const result = o.sold
-        ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">ขายได้</span>'
+        ? '<span class="chip ok">ขายได้</span>'
         : o.call_result
-            ? `<span class="text-[11px] text-slate-600">${escapeHtml(o.call_result)}</span>`
+            ? `<span class="dim" style="font-size:11px">${escapeHtml(o.call_result)}</span>`
             : o.crm_coverage === 'unlogged'
-                ? '<span class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5" title="ลูกค้ารายนี้มีบันทึกการโทรวันนี้ แต่สายนี้ไม่ถูกบันทึก">สายนี้ไม่ถูกบันทึกใน CRM</span>'
-                : '<span class="text-[10px] text-slate-400" title="ยังไม่มีข้อมูล CRM ของช่วงเวลานี้ (สายอาจใหม่เกินไป หรือ CRM ยังไม่ซิงค์)">ยังไม่มีข้อมูล CRM</span>';
+                ? `<span class="chip med" title="ลูกค้ารายนี้มีบันทึกการโทรอื่นวันเดียวกัน${o.nearby_log_at ? ' เวลา ' + o.nearby_log_at.slice(11,16) + ' น.' : ''} แต่สายนี้ไม่ถูกบันทึก">สายนี้ไม่ถูกบันทึกใน CRM${o.nearby_log_at ? ` <span class="faint" style="font-size:10px">(มี log อื่น ${o.nearby_log_at.slice(11,16)} น.)</span>` : ''}</span>`
+                : '<span class="chip neutral" title="ยังไม่มีข้อมูล CRM ของช่วงเวลานี้ (สายอาจใหม่เกินไป หรือ CRM ยังไม่ซิงค์)">ยังไม่มีข้อมูล CRM</span>';
 
-    const orders = (o.orders || []).map(x => `<div class="whitespace-nowrap mt-0.5">
-            <span class="font-mono text-[10px]">${escapeHtml(x.id)}</span>
-            <span class="text-[10px] font-bold px-1 py-0.5 rounded ${x.is_returned ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}">${escapeHtml(x.order_status)}</span>
-            <span class="text-[10px] text-slate-400">${Number(x.total_amount).toLocaleString()}฿</span>
-            ${x.days_after > 0
-                ? `<span class="text-[10px] text-amber-600" title="เปิดออเดอร์หลังโทร ${x.days_after} วัน — อาจไม่ได้มาจากสายนี้">+${x.days_after} วัน</span>`
-                : '<span class="text-[10px] text-emerald-600" title="เปิดออเดอร์วันเดียวกับที่โทร">วันเดียวกัน</span>'}
-        </div>`).join('');
+    const orderList = o.orders || [];
+    // A single order shows inline like before; several would blow up the row height, so they
+    // collapse into one clickable count badge that opens the full list in a modal instead.
+    const orders = orderList.length > 1
+        ? `<div style="margin-top:2px"><button onclick="showOrdersModal('${fileId}')" class="chip info" style="cursor:pointer;border:none">${orderList.length} ออเดอร์ &rarr;</button></div>`
+        : orderList.map(renderOrderRow).join('');
 
     cell.innerHTML = result + orders;
 }
+
+function renderOrderRow(x) {
+    return `<div style="white-space:nowrap;margin-top:2px">
+            <span class="mono-ish" style="font-size:10px">${escapeHtml(x.id)}</span>
+            <span class="chip ${x.is_returned ? 'crit' : 'info'}">${escapeHtml(x.order_status)}</span>
+            <span class="faint">${Number(x.total_amount).toLocaleString()}฿</span>
+            ${x.days_after > 0
+                ? `<span class="med" title="เปิดออเดอร์หลังโทร ${x.days_after} วัน — อาจไม่ได้มาจากสายนี้">+${x.days_after} วัน</span>`
+                : '<span class="ok" title="เปิดออเดอร์วันเดียวกับที่โทร">วันเดียวกัน</span>'}
+        </div>`;
+}
+
+function showOrdersModal(fileId) {
+    const o = outcomeCache[fileId];
+    if (!o || !(o.orders || []).length) return;
+    document.getElementById('ordersModalBody').innerHTML = o.orders.map(renderOrderRow).join('');
+    document.getElementById('ordersModal').classList.remove('hidden');
+}
+function hideOrdersModal() { document.getElementById('ordersModal').classList.add('hidden'); }
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1274,24 +1233,24 @@ const AI_BUSY_STATUSES = ['pending','transcribing','analyzing','extracting','che
 function renderAiCell(uid, record) {
     const st = aiStatusMap[uid];
     if (!st) {
-        return `<button onclick='analyzeCall(${JSON.stringify(record).replace(/'/g,"&#39;")})' class="p-1.5 text-violet-500 hover:bg-violet-50 rounded-lg transition-all" title="วิเคราะห์ด้วย AI">
-            <i class="w-5 h-5" data-lucide="sparkles"></i>
+        return `<button onclick='analyzeCall(${JSON.stringify(record).replace(/'/g,"&#39;")})' class="iconbtn ai-pending" title="วิเคราะห์ด้วย AI">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m14.5-6.5l-2 2m-9 9l-2 2m13 0l-2-2m-9-9l-2-2"/></svg>
         </button>`;
     }
     if (AI_BUSY_STATUSES.includes(st.status)) {
-        return `<span class="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 px-2 py-1 rounded-full">
-            <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+        return `<span class="ai-busy">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><circle opacity=".25" cx="12" cy="12" r="10"/><path opacity=".75" d="M4 12a8 8 0 018-8"/></svg>
             ${st.status}
         </span>`;
     }
     if (st.status === 'completed') {
-        return `<button onclick='viewAiResult(${JSON.stringify(uid)})' class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="ดูผล AI">
-            <i class="w-5 h-5" data-lucide="check-circle-2"></i>
+        return `<button onclick='viewAiResult(${JSON.stringify(uid)})' class="iconbtn ai-done" title="ดูผล AI">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
         </button>`;
     }
     // failed
-    return `<button onclick='analyzeCall(${JSON.stringify(record).replace(/'/g,"&#39;")})' class="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="${(st.error||'ล้มเหลว').replace(/"/g,'&quot;')} (กดเพื่อลองใหม่)">
-        <i class="w-5 h-5" data-lucide="alert-circle"></i>
+    return `<button onclick='analyzeCall(${JSON.stringify(record).replace(/'/g,"&#39;")})' class="iconbtn ai-fail" title="${(st.error||'ล้มเหลว').replace(/"/g,'&quot;')} (กดเพื่อลองใหม่)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     </button>`;
 }
 
@@ -1349,40 +1308,40 @@ async function viewAiResult(uid) {
     const st = aiStatusMap[uid];
     if (!st || !st.conversationId) return;
     document.getElementById('aiModal').classList.remove('hidden');
-    document.getElementById('aiModalBody').innerHTML = '<div class="text-center py-12 text-slate-400">กำลังโหลด...</div>';
+    document.getElementById('aiModalBody').innerHTML = '<div class="case-empty">กำลังโหลด...</div>';
     try {
         const res = await fetch(`${CONFIG.AI_API_URL}/conversations/${st.conversationId}`, { headers: aiHeaders() });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.message || 'โหลดข้อมูลไม่สำเร็จ');
         renderAiModalBody(data);
     } catch (err) {
-        document.getElementById('aiModalBody').innerHTML = `<div class="text-center py-12 text-red-500">เกิดข้อผิดพลาด: ${err.message}</div>`;
+        document.getElementById('aiModalBody').innerHTML = `<div class="case-empty crit">เกิดข้อผิดพลาด: ${err.message}</div>`;
     }
 }
 
 function renderAiModalBody(data) {
     const c = data.conversation, s = data.summary, e = data.entities, cr = data.compliance_report, viol = data.violations || [], fraud = data.fraud_checks || [];
-    const sentimentColor = { positive: 'text-green-600 bg-green-50', negative: 'text-red-600 bg-red-50', mixed: 'text-amber-600 bg-amber-50', neutral: 'text-slate-600 bg-slate-100' };
-    const sevColor = { critical: 'text-red-700 bg-red-100', high: 'text-orange-700 bg-orange-100', medium: 'text-amber-700 bg-amber-100', low: 'text-slate-600 bg-slate-100' };
+    const sentimentChip = { positive: 'ok', negative: 'crit', mixed: 'med', neutral: 'neutral' };
+    const sevChip = { critical: 'crit', high: 'high', medium: 'med', low: 'neutral' };
 
     let html = '';
     if (c) {
-        html += `<div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs bg-slate-50 rounded-lg p-2.5">
-            <span class="text-slate-400">ผู้โทร:</span> <span class="font-mono font-medium">${formatPhone(c.caller_phone)}</span>
-            <i class="w-3 h-3 text-slate-300" data-lucide="arrow-right"></i>
-            <span class="text-slate-400">ผู้รับ:</span> <span class="font-mono font-medium">${formatPhone(c.receiver_phone)}</span>
-            <span class="text-slate-300">|</span>
-            <span class="text-slate-400">${c.call_date||''} ${c.call_time||''}</span>
+        html += `<div class="card" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:11.5px;margin-bottom:14px;padding:10px 12px">
+            <span class="faint">ผู้โทร:</span> <span class="mono-ish b">${formatPhone(c.caller_phone)}</span>
+            <i data-lucide="arrow-right" class="faint" style="width:12px;height:12px"></i>
+            <span class="faint">ผู้รับ:</span> <span class="mono-ish b">${formatPhone(c.receiver_phone)}</span>
+            <span class="faint">|</span>
+            <span class="faint">${c.call_date||''} ${c.call_time||''}</span>
         </div>`;
     }
     if (s) {
-        html += `<div class="mb-5">
-            <div class="flex items-center justify-between mb-1.5">
-                <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide">สรุปการสนทนา</h4>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${sentimentColor[s.customer_sentiment]||sentimentColor.neutral}">${s.customer_sentiment||'-'}</span>
+        html += `<div style="margin-bottom:18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <div class="section-title" style="margin:0">สรุปการสนทนา</div>
+                <span class="chip ${sentimentChip[s.customer_sentiment]||'neutral'}">${s.customer_sentiment||'-'}</span>
             </div>
-            <p class="text-sm text-slate-700">${s.executive_summary||'-'}</p>
-            ${(s.important_keywords||[]).length ? `<div class="flex flex-wrap gap-1 mt-2">${s.important_keywords.map(k=>`<span class="text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">${k}</span>`).join('')}</div>` : ''}
+            <p style="font-size:13px;margin:0">${s.executive_summary||'-'}</p>
+            ${(s.important_keywords||[]).length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">${s.important_keywords.map(k=>`<span class="chip info">${k}</span>`).join('')}</div>` : ''}
         </div>`;
     }
     if (e || c) {
@@ -1390,51 +1349,51 @@ function renderAiModalBody(data) {
         // match for product/price) over what the LLM merely heard in the audio - speech-derived
         // values are only a fallback for when no database match exists at all.
         const customerVal = (c && c.erp_customer_name) || (e && e.customer_name) || '-';
-        const customerSrc = (c && c.erp_customer_name) ? '' : (e && e.customer_name ? ' <span class="text-slate-400">(จากเสียง)</span>' : '');
+        const customerSrc = (c && c.erp_customer_name) ? '' : (e && e.customer_name ? ' <span class="faint">(จากเสียง)</span>' : '');
         const employeeVal = (c && c.erp_employee_name) || (e && e.employee_name) || '-';
-        const employeeSrc = (c && c.erp_employee_name) ? '' : (e && e.employee_name ? ' <span class="text-slate-400">(จากเสียง)</span>' : (e ? ' <span class="text-slate-400">(ไม่พบในระบบ/ไม่ได้บอกชื่อในสาย)</span>' : ''));
+        const employeeSrc = (c && c.erp_employee_name) ? '' : (e && e.employee_name ? ' <span class="faint">(จากเสียง)</span>' : (e ? ' <span class="faint">(ไม่พบในระบบ/ไม่ได้บอกชื่อในสาย)</span>' : ''));
         const productVal = (e && e.matched_product_name) || (e && e.product) || '-';
-        const productSrc = (e && e.matched_product_name) ? '' : (e && e.product ? ' <span class="text-slate-400">(จากเสียง, ไม่พบในแคตตาล็อก)</span>' : '');
+        const productSrc = (e && e.matched_product_name) ? '' : (e && e.product ? ' <span class="faint">(จากเสียง, ไม่พบในแคตตาล็อก)</span>' : '');
         const priceVal = (e && e.matched_product_price) ? `${e.matched_product_price} บาท` : ((e && e.price) ? `${e.price} บาท (จากเสียง)` : '-');
 
-        html += `<div class="mb-3 grid grid-cols-2 gap-3 text-xs">
-            <div><span class="text-slate-400">ลูกค้า:</span> <span class="font-medium">${customerVal}</span>${customerSrc}</div>
-            <div><span class="text-slate-400">พนักงาน:</span> <span class="font-medium">${employeeVal}</span>${employeeSrc}</div>
-            <div><span class="text-slate-400">สินค้า:</span> <span class="font-medium">${productVal}</span>${productSrc}</div>
-            <div><span class="text-slate-400">ราคา:</span> <span class="font-medium">${priceVal}</span></div>
-            ${e ? `<div><span class="text-slate-400">หมวดหมู่:</span> <span class="font-medium">${e.issue_category||'-'}</span></div>` : ''}
-            ${e ? `<div><span class="text-slate-400">ความสำคัญ:</span> <span class="font-medium">${e.priority||'-'}</span></div>` : ''}
+        html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12px;margin-bottom:12px">
+            <div><span class="faint">ลูกค้า:</span> <span class="b">${customerVal}</span>${customerSrc}</div>
+            <div><span class="faint">พนักงาน:</span> <span class="b">${employeeVal}</span>${employeeSrc}</div>
+            <div><span class="faint">สินค้า:</span> <span class="b">${productVal}</span>${productSrc}</div>
+            <div><span class="faint">ราคา:</span> <span class="b">${priceVal}</span></div>
+            ${e ? `<div><span class="faint">หมวดหมู่:</span> <span class="b">${e.issue_category||'-'}</span></div>` : ''}
+            ${e ? `<div><span class="faint">ความสำคัญ:</span> <span class="b">${e.priority||'-'}</span></div>` : ''}
         </div>`;
         if (e && e.linked_order_id) {
-            html += `<div class="mb-5 bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs">
-                <span class="text-slate-500">ออเดอร์จริงที่เกี่ยวข้อง:</span> <span class="font-semibold">#${e.linked_order_id}</span> วันที่ ${e.linked_order_date} ยอดรวม ${e.linked_order_total} บาท
+            html += `<div class="explainer" style="margin-bottom:18px">
+                <span class="dim">ออเดอร์จริงที่เกี่ยวข้อง:</span> <b>#${e.linked_order_id}</b> วันที่ ${e.linked_order_date} ยอดรวม ${e.linked_order_total} บาท
             </div>`;
         }
     }
-    html += `<div class="mb-5">
-        <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">ตรวจสอบ Compliance</h4>
-        ${cr ? `<span class="text-[11px] font-bold px-2 py-1 rounded-full ${cr.overall_status==='compliant'?'text-green-700 bg-green-100':'text-red-700 bg-red-100'}">${cr.overall_status}</span>` : '<span class="text-slate-400 text-xs">-</span>'}
-        ${viol.map(v => `<div class="mt-2 border-l-2 border-red-300 pl-3">
-            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${sevColor[v.severity]||sevColor.low}">${v.severity}</span>
-            <span class="text-xs font-semibold ml-1">${v.rule_name}</span>
-            <p class="text-xs text-slate-600 mt-0.5">${v.explanation||''}</p>
-            <p class="text-[11px] text-slate-400 italic mt-0.5">"${v.evidence||''}"</p>
+    html += `<div style="margin-bottom:18px">
+        <div class="section-title">ตรวจสอบ Compliance</div>
+        ${cr ? `<span class="chip ${cr.overall_status==='compliant'?'ok':'crit'}">${cr.overall_status}</span>` : '<span class="faint">-</span>'}
+        ${viol.map(v => `<div class="case-evidence" style="border-left-color:var(--crit);margin:8px 0 0">
+            <span class="chip ${sevChip[v.severity]||'neutral'}">${v.severity}</span>
+            <span class="b" style="margin-left:4px">${v.rule_name}</span>
+            <p style="font-size:12px;margin:4px 0 0">${v.explanation||''}</p>
+            <p class="faint" style="font-size:11px;font-style:italic;margin:4px 0 0">"${v.evidence||''}"</p>
         </div>`).join('')}
     </div>`;
     if (fraud.length) {
         const channelLabel = { bank_account: 'เลขบัญชี', promptpay: 'พร้อมเพย์', line_id: 'LINE ID', wallet: 'e-Wallet', other: 'อื่นๆ', number_sequence: 'ชุดตัวเลข' };
         const checkLabel = { missing_order: 'ขายแล้วไม่พบออเดอร์', price_mismatch: 'ราคาไม่ตรงกับระบบ' };
-        html += `<div class="mb-5">
-            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">ตรวจสอบทุจริต</h4>
-            ${fraud.map(f => `<div class="mt-2 border-l-2 ${f.status==='clear'?'border-emerald-300':'border-rose-400'} pl-3">
-                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${f.status==='clear'?'text-emerald-700 bg-emerald-100':(sevColor[f.risk_level]||sevColor.low)}">${f.status==='clear'?'ผ่าน/ตรงระบบ':f.risk_level}</span>
-                <span class="text-xs font-semibold ml-1">${channelLabel[f.channel_type]||checkLabel[f.check_type]||f.channel_type||''}</span>
-                ${f.detected_value ? `<code class="text-[11px] bg-slate-100 px-1 py-0.5 rounded ml-1">${f.detected_value}</code>` : ''}
-                ${f.review_status==='confirmed' ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white ml-1">ยืนยันทุจริต</span>' : (f.review_status==='dismissed' ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 ml-1">ปัดตกแล้ว</span>' : '')}
-                <p class="text-xs text-slate-600 mt-0.5">${f.explanation||''}</p>
-                ${f.evidence ? `<p class="text-[11px] text-slate-400 italic mt-0.5">"${f.evidence}"</p>` : ''}
+        html += `<div style="margin-bottom:18px">
+            <div class="section-title">ตรวจสอบทุจริต</div>
+            ${fraud.map(f => `<div class="case-evidence" style="border-left-color:${f.status==='clear'?'var(--ok)':'var(--crit)'};margin:8px 0 0">
+                <span class="chip ${f.status==='clear'?'ok':(sevChip[f.risk_level]||'neutral')}">${f.status==='clear'?'ผ่าน/ตรงระบบ':f.risk_level}</span>
+                <span class="b" style="margin-left:4px">${channelLabel[f.channel_type]||checkLabel[f.check_type]||f.channel_type||''}</span>
+                ${f.detected_value ? `<code class="mono-ish" style="background:var(--sunken);padding:1px 5px;border-radius:4px;margin-left:4px;font-size:11px">${f.detected_value}</code>` : ''}
+                ${f.review_status==='confirmed' ? '<span class="chip solid crit" style="margin-left:4px">ยืนยันทุจริต</span>' : (f.review_status==='dismissed' ? '<span class="chip solid neutral" style="margin-left:4px">ปัดตกแล้ว</span>' : '')}
+                <p style="font-size:12px;margin:4px 0 0">${f.explanation||''}</p>
+                ${f.evidence ? `<p class="faint" style="font-size:11px;font-style:italic;margin:4px 0 0">"${f.evidence}"</p>` : ''}
             </div>`).join('')}
-            <a href="./ui/fraud_dashboard.html" target="_blank" class="inline-block mt-2 text-[11px] text-rose-600 hover:underline font-medium">เปิดหน้าตรวจสอบทุจริต →</a>
+            <a href="./ui/fraud_dashboard.html" target="_blank" class="btn small" style="margin-top:10px;color:var(--crit)">เปิดหน้าตรวจสอบทุจริต →</a>
         </div>`;
     }
     if (data.transcript) {
@@ -1444,22 +1403,22 @@ function renderAiModalBody(data) {
             const role = roleByLabel[label];
             if (role === 'employee') {
                 const name = (c && c.erp_employee_name) || (e && e.employee_name);
-                return { text: name ? `พนักงาน (${name})` : 'พนักงาน', color: 'text-sky-600' };
+                return { text: name ? `พนักงาน (${name})` : 'พนักงาน', color: 'var(--accent-ink)' };
             }
             if (role === 'customer') {
                 const name = (c && c.erp_customer_name) || (e && e.customer_name);
-                return { text: name ? `ลูกค้า (${name})` : 'ลูกค้า', color: 'text-orange-600' };
+                return { text: name ? `ลูกค้า (${name})` : 'ลูกค้า', color: 'var(--high)' };
             }
-            return { text: label, color: 'text-slate-500' };
+            return { text: label, color: 'var(--ink-dim)' };
         };
         html += `<div>
-            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">บทสนทนา</h4>
-            <div class="bg-slate-50 rounded-lg p-3 max-h-64 overflow-y-auto space-y-1.5">
-                ${(data.segments||[]).map(seg => { const sp = speakerLabelHtml(seg.speaker_label); return `<p class="text-xs"><span class="font-semibold ${sp.color}">${sp.text}:</span> ${seg.text}</p>`; }).join('')}
+            <div class="section-title">บทสนทนา</div>
+            <div style="background:var(--sunken);border-radius:var(--radius-sm);padding:12px;max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+                ${(data.segments||[]).map(seg => { const sp = speakerLabelHtml(seg.speaker_label); return `<p style="font-size:12px;margin:0"><span class="b" style="color:${sp.color}">${sp.text}:</span> ${seg.text}</p>`; }).join('')}
             </div>
         </div>`;
     }
-    document.getElementById('aiModalBody').innerHTML = html || '<div class="text-center py-12 text-slate-400">ไม่มีข้อมูล</div>';
+    document.getElementById('aiModalBody').innerHTML = html || '<div class="case-empty">ไม่มีข้อมูล</div>';
 }
 
 function hideAiModal() { document.getElementById('aiModal').classList.add('hidden'); }
@@ -1470,7 +1429,7 @@ function playAudio(record) {
     const uid = record.id+record.date+record.time;
     if (currentPlayingId===uid) { stopAudio(); return; }
     currentPlayingId = uid;
-    document.getElementById('playerInfo').innerHTML = `<span class="text-[10px] font-mono text-slate-500">ID: ${record.id}</span><span class="text-[10px] font-mono ${record.direction==='IN'?'text-green-600 bg-green-50':'text-orange-600 bg-orange-50'} px-1.5 py-0.5 rounded">${record.direction}</span><span class="text-[10px] text-slate-400">${formatDate(record.date)} ${record.time}</span>`;
+    document.getElementById('playerInfo').innerHTML = `<span class="mono-ish dim" style="font-size:10.5px">ID: ${record.id}</span><span class="badge-dir ${record.direction==='IN'?'in':'out'}">${record.direction}</span><span class="faint" style="font-size:10.5px">${formatDate(record.date)} ${record.time}</span>`;
     document.getElementById('playerCaller').textContent = formatPhone(record.caller);
     document.getElementById('playerReceiver').textContent = formatPhone(record.receiver);
     const src = document.getElementById('dataSource').value;
@@ -1517,14 +1476,14 @@ function addFiles(files) {
     const list = document.getElementById('uploadFileList');
     list.classList.remove('hidden');
     list.innerHTML = pendingFiles.map((f, i) => `
-        <div class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-sm">
-            <div class="flex items-center gap-2 truncate">
-                <i class="w-4 h-4 text-sky-500 flex-shrink-0" data-lucide="file-audio"></i>
-                <span class="truncate">${f.name}</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--sunken);border-radius:var(--radius-sm);padding:8px 12px;font-size:12.5px">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden">
+                <i data-lucide="file-audio" style="width:15px;height:15px;color:var(--accent);flex-shrink:0"></i>
+                <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</span>
             </div>
-            <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-400">${formatSize(f.size)}</span>
-                <button onclick="removeFile(${i})" class="text-slate-400 hover:text-red-500"><i class="w-4 h-4" data-lucide="x"></i></button>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                <span class="faint" style="font-size:11px">${formatSize(f.size)}</span>
+                <button onclick="removeFile(${i})" class="iconbtn"><i data-lucide="x"></i></button>
             </div>
         </div>`).join('');
     document.getElementById('startUploadBtn').disabled = pendingFiles.length === 0;
@@ -1560,7 +1519,7 @@ async function startUpload() {
             done++;
         } catch (err) {
             console.error('Upload error:', file.name, err);
-            status.textContent = `❌ ${file.name}: ${err.message}`;
+            status.textContent = `${file.name}: ${err.message}`;
             done++;
         }
         const p = Math.round((done / pendingFiles.length) * 100);
@@ -1568,8 +1527,8 @@ async function startUpload() {
         percent.textContent = p + '%';
     }
 
-    status.textContent = `✅ อัปโหลดสำเร็จ ${done}/${pendingFiles.length} ไฟล์`;
-    bar.classList.remove('bg-sky-500'); bar.classList.add('bg-emerald-500');
+    status.textContent = `อัปโหลดสำเร็จ ${done}/${pendingFiles.length} ไฟล์`;
+    bar.style.background = 'var(--ok)';
     pendingFiles = [];
 
     // Refresh data after 2 seconds
@@ -1597,7 +1556,7 @@ async function createCompanyFolder() {
         hideAddCompanyModal();
         await loadGDriveCompanies();
     } catch (err) {
-        alert('❌ เกิดข้อผิดพลาด: ' + err.message);
+        alert('เกิดข้อผิดพลาด: ' + err.message);
     }
 }
 

@@ -11,6 +11,7 @@ api/logs/
 *.gsm
 *.wav
 *.mp3
+*.xlsx
 
 # Local / system
 *.log
