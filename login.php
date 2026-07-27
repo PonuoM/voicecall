@@ -92,6 +92,7 @@ if ($user['status'] !== 'active') {
 // Mint a bearer token for the AI pipeline API (api/index.php) in the local voicecall_ai DB.
 // Additive only — never blocks login if it fails, since the existing dashboard doesn't need it.
 $apiToken = null;
+$apiTokenExpires = null;
 try {
     require_once __DIR__ . '/api/core/env.php';
     load_env(__DIR__ . '/.env');
@@ -103,31 +104,45 @@ try {
     );
     $aiConn->set_charset('utf8mb4');
     $apiToken = bin2hex(random_bytes(32));
-    $expiresAt = date('Y-m-d H:i:s', strtotime('+7 days'));
     $uid = (int)$user['id'];
     $cid = (int)$user['company_id'];
     $rid = (int)$user['role_id'];
     $isSuperAdmin = in_array($rid, [1, 10, 14]) ? 1 : 0;
     $fullName = trim($user['first_name'] . ' ' . $user['last_name']);
+    // expires_at is computed by MySQL, not PHP, on purpose: this host runs PHP in UTC while the
+    // MySQL server runs Asia/Bangkok, so a PHP-side strtotime('+7 days') was written 7h behind the
+    // NOW() that api/config.php later compares it against — every token silently died 7 hours
+    // early (6d17h, not 7d). Same clock on both sides of the comparison now.
     $tokenStmt = $aiConn->prepare('
         INSERT INTO api_tokens (erp_user_id, erp_company_id, erp_role_id, erp_is_super_admin, erp_username, erp_full_name, token, expires_at)
-        VALUES (?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?, DATE_ADD(NOW(), INTERVAL 7 DAY))
     ');
     $tokenStmt->bind_param(
-        'iiiissss',
+        'iiiisss',
         $uid,
         $cid,
         $rid,
         $isSuperAdmin,
         $user['username'],
         $fullName,
-        $apiToken,
-        $expiresAt
+        $apiToken
     );
     $tokenStmt->execute();
+
+    // Hand the browser the real expiry as a UNIX epoch so index.html can stop replaying a token
+    // the server would reject. Epoch (not a datetime string) keeps the comparison immune to the
+    // client's own timezone.
+    $expStmt = $aiConn->prepare('SELECT UNIX_TIMESTAMP(expires_at) FROM api_tokens WHERE token = ?');
+    $expStmt->bind_param('s', $apiToken);
+    $expStmt->execute();
+    $expStmt->bind_result($apiTokenExpires);
+    $expStmt->fetch();
+    $expStmt->close();
+
     $aiConn->close();
 } catch (Throwable $e) {
     $apiToken = null; // AI API simply won't be usable this session; dashboard login still succeeds
+    $apiTokenExpires = null;
 }
 
 // Success — return user info
@@ -142,7 +157,8 @@ echo json_encode([
         'role_id' => (int)$user['role_id'],
         'role_name' => $user['role_name'] ?? 'ไม่ระบุ',
         'is_super_admin' => in_array((int)$user['role_id'], [1, 10, 14]), // Super Admin, Admin System, CEO
-        'api_token' => $apiToken // bearer token for api/* (AI pipeline) endpoints; null if minting failed
+        'api_token' => $apiToken, // bearer token for api/* (AI pipeline) endpoints; null if minting failed
+        'api_token_expires_at' => $apiTokenExpires === null ? null : (int)$apiTokenExpires // UNIX epoch
     ]
 ]);
 

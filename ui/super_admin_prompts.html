@@ -33,6 +33,7 @@
         <a href="fraud_dashboard.html" class="rail-item"><i data-lucide="shield-alert"></i><span class="lbl">ตรวจทุจริต</span></a>
         <a href="long_calls.html" class="rail-item"><i data-lucide="timer"></i><span class="lbl">สายยาวผิดปกติ</span></a>
         <a href="ghost_numbers.html" class="rail-item"><i data-lucide="user-x"></i><span class="lbl">เบอร์ต้องสงสัย</span></a>
+        <a href="returned_orders.html" class="rail-item"><i data-lucide="package-x"></i><span class="lbl">ออเดอร์ตีกลับ</span></a>
     </nav>
     <div class="rail-group-label">ระบบ</div>
     <nav>
@@ -185,7 +186,11 @@ const sessionData = sessionStorage.getItem('voicecall_user') || localStorage.get
 if (sessionData) {
     try {
         const user = JSON.parse(sessionData);
-        if (user.is_super_admin) {
+        if (user.is_super_admin && isStoredSessionExpired(sessionData)) {
+            // Stored sessions never expire on their own, so an already-dead token would otherwise
+            // be replayed until every request 401s and the page just sat there empty.
+            endExpiredSession();
+        } else if (user.is_super_admin) {
             adminUser = user;
             document.getElementById('railAvatar').textContent = (user.name || '?').trim().charAt(0).toUpperCase();
             document.getElementById('railUserName').textContent = user.name + (user.company_name ? ' (' + user.company_name + ')' : '');
@@ -213,6 +218,32 @@ function getAuthHeaders() {
         'Authorization': 'Bearer ' + (adminUser ? adminUser.api_token : ''),
         'Content-Type': 'application/json'
     };
+}
+
+/** login.php sends api_token_expires_at as a UNIX epoch, so this can't be skewed by the client clock. */
+function isStoredSessionExpired(raw) {
+    try {
+        const exp = JSON.parse(raw).api_token_expires_at;
+        return !!exp && Date.now() / 1000 >= exp;
+    } catch (e) { return false; }
+}
+
+function endExpiredSession() {
+    alert('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+    doLogout();
+}
+
+/** Single place that reacts to the API rejecting our token - see the same helper in the other dashboards. */
+async function apiFetch(url, options = {}) {
+    const res = await fetch(url, {
+        ...options,
+        headers: { ...getAuthHeaders(), ...(options.headers || {}) }
+    });
+    if (res.status === 401) {
+        endExpiredSession();
+        throw new Error('SESSION_EXPIRED');
+    }
+    return res;
 }
 
 async function init() {
@@ -243,9 +274,7 @@ async function loadPrompt() {
     document.getElementById('loadingOverlay').classList.remove('hidden');
 
     try {
-        const res = await fetch(`${apiBase}/prompts?company_id=${cid}`, {
-            headers: getAuthHeaders()
-        });
+        const res = await apiFetch(`${apiBase}/prompts?company_id=${cid}`);
         const data = await res.json();
         if (data.ok) {
             currentDefaultPrompt = data.default_prompt || '';
@@ -270,9 +299,8 @@ async function savePrompt() {
 
     document.getElementById('loadingOverlay').classList.remove('hidden');
     try {
-        const res = await fetch(`${apiBase}/prompts`, {
+        const res = await apiFetch(`${apiBase}/prompts`, {
             method: 'POST',
-            headers: getAuthHeaders(),
             body: JSON.stringify({
                 company_id: cid,
                 additional_prompt: additionalPrompt,

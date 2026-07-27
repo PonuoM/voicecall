@@ -33,6 +33,7 @@
         <a href="fraud_dashboard.html" class="rail-item active"><i data-lucide="shield-alert"></i><span class="lbl">ตรวจทุจริต</span></a>
         <a href="long_calls.html" class="rail-item"><i data-lucide="timer"></i><span class="lbl">สายยาวผิดปกติ</span></a>
         <a href="ghost_numbers.html" class="rail-item"><i data-lucide="user-x"></i><span class="lbl">เบอร์ต้องสงสัย</span></a>
+        <a href="returned_orders.html" class="rail-item"><i data-lucide="package-x"></i><span class="lbl">ออเดอร์ตีกลับ</span></a>
     </nav>
     <div class="rail-group-label">ระบบ</div>
     <nav>
@@ -213,6 +214,12 @@ let aiToken = null;
     if (!aiToken) {
         alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
         window.location.href = '../index.html';
+        return;
+    }
+    // The stored session carries no expiry of its own, so without this a token that already died
+    // server-side keeps being replayed and every request 401s into a page that just looks empty.
+    if (isStoredSessionExpired(raw)) {
+        endExpiredSession();
     }
 })();
 
@@ -222,8 +229,34 @@ function doLogout() {
     window.location.href = '../index.html';
 }
 
-function authHeaders() {
-    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiToken };
+/** login.php sends api_token_expires_at as a UNIX epoch, so this can't be skewed by the client clock. */
+function isStoredSessionExpired(raw) {
+    try {
+        const exp = JSON.parse(raw).api_token_expires_at;
+        return !!exp && Date.now() / 1000 >= exp;
+    } catch (e) { return false; }
+}
+
+function endExpiredSession() {
+    alert('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+    doLogout();
+}
+
+/**
+ * Single place that reacts to the API rejecting our token. Before this, every caller on this page
+ * swallowed the 401 into an empty table or a generic error, so an ended session looked exactly
+ * like a broken page.
+ */
+async function apiFetch(url, options = {}) {
+    const res = await fetch(url, {
+        ...options,
+        headers: { 'Authorization': 'Bearer ' + aiToken, ...(options.headers || {}) }
+    });
+    if (res.status === 401) {
+        endExpiredSession();
+        throw new Error('SESSION_EXPIRED');
+    }
+    return res;
 }
 
 const RISK_CHIP = {
@@ -261,7 +294,7 @@ function localPhone(p) {
 }
 
 async function loadSummary() {
-    const res = await fetch(`${API_BASE}/fraud/summary`, { headers: authHeaders() });
+    const res = await apiFetch(`${API_BASE}/fraud/summary`);
     const data = await res.json();
     if (!data.ok) return;
     const o = data.overall || {};
@@ -301,7 +334,7 @@ async function loadChecks() {
     if (checkType) params.set('check_type', checkType);
     params.set('status', status || 'all');
 
-    const res = await fetch(`${API_BASE}/fraud?${params}`, { headers: authHeaders() });
+    const res = await apiFetch(`${API_BASE}/fraud?${params}`);
     const data = await res.json();
     if (!data.ok) {
         list.innerHTML = `<div class="case-empty crit">โหลดข้อมูลไม่สำเร็จ: ${esc(data.message || data.error)}</div>`;
@@ -364,9 +397,9 @@ async function review(id, decision) {
     const label = decision === 'confirmed' ? 'ยืนยันว่าเป็นการทุจริต' : 'ปัดตก (ไม่ใช่การทุจริต)';
     const note = prompt(`${label}\nใส่บันทึกเพิ่มเติม (เว้นว่างได้):`);
     if (note === null) return; // cancelled
-    const res = await fetch(`${API_BASE}/fraud/${id}/review`, {
+    const res = await apiFetch(`${API_BASE}/fraud/${id}/review`, {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, note }),
     });
     const data = await res.json();

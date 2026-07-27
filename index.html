@@ -31,8 +31,13 @@
         } catch (e) {}
         // Pre-paint session check: hide the login overlay before first render when a session
         // already exists, so navigating back from another tab/page doesn't flash the login screen.
+        // An expired token must NOT count as a session here, or the dashboard paints first and
+        // only bounces back to login once the restore path runs - a visible flash of a screen the
+        // user can't actually use.
         try {
-            if (sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared')) {
+            var s = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
+            var exp = s ? JSON.parse(s).api_token_expires_at : null;
+            if (s && !(exp && Date.now() / 1000 >= exp)) {
                 document.documentElement.classList.add('has-session');
             }
         } catch (e) {}
@@ -84,6 +89,7 @@
         <a href="./ui/fraud_dashboard.html" class="rail-item"><i data-lucide="shield-alert"></i><span class="lbl">ตรวจทุจริต</span></a>
         <a href="./ui/long_calls.html" class="rail-item"><i data-lucide="timer"></i><span class="lbl">สายยาวผิดปกติ</span></a>
         <a href="./ui/ghost_numbers.html" class="rail-item"><i data-lucide="user-x"></i><span class="lbl">เบอร์ต้องสงสัย</span></a>
+        <a href="./ui/returned_orders.html" class="rail-item"><i data-lucide="package-x"></i><span class="lbl">ออเดอร์ตีกลับ</span></a>
     </nav>
     <div class="rail-group-label">ระบบ</div>
     <nav>
@@ -425,6 +431,7 @@ async function doLogin() {
         if (data.success) {
             loggedInUser = data.user;
             aiToken = data.user.api_token || null;
+            sessionExpiryHandled = false; // fresh token - let a future expiry prompt again
             sessionStorage.setItem('voicecall_user', JSON.stringify(data.user));
             localStorage.setItem('voicecall_user_shared', JSON.stringify(data.user)); // For sync_dashboard new tab
             showDashboard();
@@ -442,6 +449,18 @@ function showLoginError(msg) {
     errEl.textContent = msg; errEl.classList.remove('hidden');
     document.querySelector('.login-card').classList.add('shake');
     setTimeout(() => document.querySelector('.login-card').classList.remove('shake'), 500);
+}
+
+/**
+ * True when the stored session carries a token the server would already reject. login.php sends
+ * api_token_expires_at as a UNIX epoch (computed by MySQL, not PHP) precisely so this check can't
+ * be thrown off by the browser's timezone or by the 7h PHP/MySQL clock gap that used to shorten
+ * every token's life. Sessions saved before that field existed have no expiry to compare against,
+ * so they're allowed through and the 401 handler catches them instead.
+ */
+function isStoredSessionExpired(user) {
+    const exp = user && user.api_token_expires_at;
+    return !!exp && Date.now() / 1000 >= exp;
 }
 
 function doLogout() {
@@ -775,9 +794,7 @@ async function fetchFromIndexApi(companyFolderId) {
     const m = folder && folder.name.match(/Company\s*=\s*(\d+)/i);
     if (!m) return null;
     try {
-        const res = await fetch(`${CONFIG.AI_API_URL}/drive-index?company_id=${m[1]}`, {
-            headers: { 'Authorization': 'Bearer ' + aiToken }
-        });
+        const res = await aiFetch(`/drive-index?company_id=${m[1]}`);
         if (!res.ok) return null;
         const data = await res.json();
         if (!data.ok || !Array.isArray(data.data) || data.data.length === 0) return null;
@@ -840,7 +857,7 @@ async function loadCompanyFiles(companyFolderId) {
 async function syncAiStatusFromServer() {
     if (!aiToken) return;
     try {
-        const res = await fetch(`${CONFIG.AI_API_URL}/conversations/status-map`, { headers: aiHeaders() });
+        const res = await aiFetch('/conversations/status-map');
         const data = await res.json();
         if (!res.ok || !data.ok) return;
         const byRef = {};
@@ -880,7 +897,7 @@ async function syncDriveIndex() {
     lucide.createIcons();
 
     try {
-        const res = await fetch(`${CONFIG.AI_API_URL}/drive-index/sync?company_id=${m[1]}`, { method: 'POST', headers: aiHeaders() });
+        const res = await aiFetch(`/drive-index/sync?company_id=${m[1]}`, { method: 'POST' });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.message || 'ซิงค์ไม่สำเร็จ');
 
@@ -1165,7 +1182,7 @@ async function loadOutcomesForPage(page) {
     const missing = ids.filter(id => !(id in outcomeCache));
     if (missing.length) {
         try {
-            const res = await fetch(`${CONFIG.AI_API_URL}/call-outcomes?ids=${encodeURIComponent(missing.join(','))}`, { headers: aiHeaders() });
+            const res = await aiFetch(`/call-outcomes?ids=${encodeURIComponent(missing.join(','))}`);
             const data = await res.json();
             if (!data.ok) return;
             // Remember misses too, so a recording with no ERP match isn't re-requested every render.
@@ -1258,6 +1275,40 @@ function aiHeaders() {
     return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiToken };
 }
 
+/**
+ * Every AI_API_URL request goes through here so an expired bearer token is dealt with in exactly
+ * one place. Tokens last 7 days (login.php), but the session is restored from localStorage, which
+ * has no expiry of its own - so a browser that last logged in 8 days ago kept replaying a dead
+ * token forever. Every caller swallowed the resulting 401 quietly (fetchFromIndexApi returned
+ * null, loadOutcomesForPage returned, syncAiStatusFromServer returned), so the only symptom was
+ * "the dashboard got slow": the Drive index silently fell back to a full live recursive scan and
+ * the AI status icons vanished, with nothing on screen saying the session had ended.
+ */
+async function aiFetch(path, options = {}) {
+    const res = await fetch(`${CONFIG.AI_API_URL}${path}`, {
+        ...options,
+        headers: { ...aiHeaders(), ...(options.headers || {}) }
+    });
+    if (res.status === 401) {
+        handleSessionExpired();
+        throw new Error('SESSION_EXPIRED');
+    }
+    return res;
+}
+
+/**
+ * Ends the session the moment the server rejects our token. Guarded because a single render fires
+ * several AI requests in parallel - without the flag, one expiry would stack up a login prompt per
+ * in-flight request.
+ */
+let sessionExpiryHandled = false;
+function handleSessionExpired() {
+    if (sessionExpiryHandled) return;
+    sessionExpiryHandled = true;
+    doLogout();
+    showLoginError('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+}
+
 async function analyzeCall(record) {
     if (!aiToken) { alert('ไม่พบ AI token กรุณาเข้าสู่ระบบใหม่'); return; }
     const uid = record.id + record.date + record.time;
@@ -1273,7 +1324,7 @@ async function analyzeCall(record) {
     aiStatusMap[uid] = { status: 'pending' };
     renderTable();
     try {
-        const regRes = await fetch(`${CONFIG.AI_API_URL}/conversations`, { method: 'POST', headers: aiHeaders(), body: JSON.stringify(body) });
+        const regRes = await aiFetch('/conversations', { method: 'POST', body: JSON.stringify(body) });
         const regData = await regRes.json();
         if (!regRes.ok || !regData.ok) throw new Error(regData.message || 'ลงทะเบียนไม่สำเร็จ');
         const conversationId = regData.conversation.id;
@@ -1291,7 +1342,7 @@ async function analyzeCall(record) {
         aiStatusMap[uid] = { status: 'transcribing', conversationId };
         renderTable();
 
-        const procRes = await fetch(`${CONFIG.AI_API_URL}/conversations/${conversationId}/process`, { method: 'POST', headers: aiHeaders() });
+        const procRes = await aiFetch(`/conversations/${conversationId}/process`, { method: 'POST' });
         const procData = await procRes.json();
         if (!procRes.ok || !procData.ok) throw new Error(procData.error || 'วิเคราะห์ไม่สำเร็จ');
 
@@ -1310,7 +1361,7 @@ async function viewAiResult(uid) {
     document.getElementById('aiModal').classList.remove('hidden');
     document.getElementById('aiModalBody').innerHTML = '<div class="case-empty">กำลังโหลด...</div>';
     try {
-        const res = await fetch(`${CONFIG.AI_API_URL}/conversations/${st.conversationId}`, { headers: aiHeaders() });
+        const res = await aiFetch(`/conversations/${st.conversationId}`);
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.message || 'โหลดข้อมูลไม่สำเร็จ');
         renderAiModalBody(data);
@@ -1589,6 +1640,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saved) {
         try {
             loggedInUser = JSON.parse(saved);
+            // Don't restore a session whose token the server will reject anyway - otherwise the
+            // dashboard opens looking fine and only degrades once the first request 401s.
+            if (isStoredSessionExpired(loggedInUser)) {
+                loggedInUser = null;
+                doLogout();
+                showLoginError('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+                return;
+            }
             aiToken = loggedInUser.api_token || null;
             sessionStorage.setItem('voicecall_user', saved);
             showDashboard();
