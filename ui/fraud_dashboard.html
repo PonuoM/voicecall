@@ -194,6 +194,9 @@ lucide.createIcons();
 
 const API_BASE = '../api/index.php'; // same convention as index.html CONFIG.AI_API_URL (no .htaccess rewrite)
 let aiToken = null;
+// Declared above initSession() on purpose: that IIFE runs while this script is still parsing, so a
+// `let` placed further down would be in its temporal dead zone and throw when the IIFE reads it.
+let sessionExpired = false;
 
 // Same session source as sync_dashboard.html: user object written by login.php via index.html.
 (function initSession() {
@@ -220,6 +223,7 @@ let aiToken = null;
     // server-side keeps being replayed and every request 401s into a page that just looks empty.
     if (isStoredSessionExpired(raw)) {
         endExpiredSession();
+        return;
     }
 })();
 
@@ -237,7 +241,14 @@ function isStoredSessionExpired(raw) {
     } catch (e) { return false; }
 }
 
+/**
+ * Guarded because doLogout() only *queues* a navigation - the rest of this script keeps running, so
+ * loadAll() would still fire, 401, and alert again before the page went away. This page fans out
+ * loadSummary() and loadChecks() in parallel, so without the guard one expiry meant three alerts.
+ */
 function endExpiredSession() {
+    if (sessionExpired) return;
+    sessionExpired = true;
     alert('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
     doLogout();
 }
@@ -248,6 +259,8 @@ function endExpiredSession() {
  * like a broken page.
  */
 async function apiFetch(url, options = {}) {
+    // Already logging out - don't spend a request on a token we know is dead.
+    if (sessionExpired) throw new Error('SESSION_EXPIRED');
     const res = await fetch(url, {
         ...options,
         headers: { 'Authorization': 'Bearer ' + aiToken, ...(options.headers || {}) }
@@ -411,11 +424,16 @@ async function review(id, decision) {
 }
 
 function loadAll() {
-    loadSummary().catch(console.error);
-    loadChecks().catch(console.error);
+    // SESSION_EXPIRED is not a page failure - endExpiredSession() already alerted and is navigating
+    // away, so logging it once per in-flight request only adds console noise.
+    const ignoreExpiry = e => { if (e.message !== 'SESSION_EXPIRED') console.error(e); };
+    loadSummary().catch(ignoreExpiry);
+    loadChecks().catch(ignoreExpiry);
 }
 
-loadAll();
+// Skipped when initSession() already found the token expired, so a logging-out page doesn't fire
+// two doomed requests on its way out.
+if (!sessionExpired) loadAll();
 lucide.createIcons();
 </script>
 </body>

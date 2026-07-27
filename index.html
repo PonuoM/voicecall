@@ -908,7 +908,8 @@ async function syncDriveIndex() {
         try { localStorage.removeItem(`vcache2_company_${companyFolderId}`); } catch (e) {}
         await loadCompanyFiles(companyFolderId);
     } catch (err) {
-        alert('ซิงค์ไม่สำเร็จ: ' + err.message);
+        // See analyzeCall(): an ended session is already announced, so don't blame the sync for it.
+        if (err.message !== 'SESSION_EXPIRED') alert('ซิงค์ไม่สำเร็จ: ' + err.message);
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalHtml;
@@ -1275,6 +1276,10 @@ function aiHeaders() {
     return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiToken };
 }
 
+// Declared above its two readers (aiFetch / handleSessionExpired) so the guard can't be tripped by a
+// temporal-dead-zone error if either is ever called earlier in the page's life than it is today.
+let sessionExpiryHandled = false;
+
 /**
  * Every AI_API_URL request goes through here so an expired bearer token is dealt with in exactly
  * one place. Tokens last 7 days (login.php), but the session is restored from localStorage, which
@@ -1285,6 +1290,8 @@ function aiHeaders() {
  * the AI status icons vanished, with nothing on screen saying the session had ended.
  */
 async function aiFetch(path, options = {}) {
+    // Session already ended - don't spend a request on a token we know the server will reject.
+    if (sessionExpiryHandled) throw new Error('SESSION_EXPIRED');
     const res = await fetch(`${CONFIG.AI_API_URL}${path}`, {
         ...options,
         headers: { ...aiHeaders(), ...(options.headers || {}) }
@@ -1301,7 +1308,6 @@ async function aiFetch(path, options = {}) {
  * several AI requests in parallel - without the flag, one expiry would stack up a login prompt per
  * in-flight request.
  */
-let sessionExpiryHandled = false;
 function handleSessionExpired() {
     if (sessionExpiryHandled) return;
     sessionExpiryHandled = true;
@@ -1350,6 +1356,9 @@ async function analyzeCall(record) {
         renderTable();
         await viewAiResult(uid);
     } catch (err) {
+        // An ended session isn't an analysis failure - handleSessionExpired() already said so and is
+        // bouncing to login, so don't leave the row wearing a red "failed: SESSION_EXPIRED" badge.
+        if (err.message === 'SESSION_EXPIRED') return;
         aiStatusMap[uid] = { status: 'failed', error: err.message };
         renderTable();
     }
@@ -1366,6 +1375,8 @@ async function viewAiResult(uid) {
         if (!res.ok || !data.ok) throw new Error(data.message || 'โหลดข้อมูลไม่สำเร็จ');
         renderAiModalBody(data);
     } catch (err) {
+        // See analyzeCall(): SESSION_EXPIRED is already being handled, so don't print the sentinel.
+        if (err.message === 'SESSION_EXPIRED') return;
         document.getElementById('aiModalBody').innerHTML = `<div class="case-empty crit">เกิดข้อผิดพลาด: ${err.message}</div>`;
     }
 }

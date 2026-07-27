@@ -253,6 +253,9 @@ lucide.createIcons();
 const API_BASE = '../api/index.php';
 let aiToken = null;
 let currentUser = null;
+// Declared above initSession() on purpose: that IIFE runs while this script is still parsing, so a
+// `let` placed further down would be in its temporal dead zone and throw when the IIFE reads it.
+let sessionExpired = false;
 
 (function initSession() {
     const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
@@ -276,6 +279,7 @@ let currentUser = null;
     // server-side keeps being replayed and every request 401s into a page that just looks empty.
     if (isStoredSessionExpired(raw)) {
         endExpiredSession();
+        return;
     }
 })();
 
@@ -293,7 +297,13 @@ function isStoredSessionExpired(raw) {
     } catch (e) { return false; }
 }
 
+/**
+ * Guarded because doLogout() only *queues* a navigation - the rest of this script keeps running, so
+ * the bottom-of-page init() would still fire, 401, and alert a second time before the page went away.
+ */
 function endExpiredSession() {
+    if (sessionExpired) return;
+    sessionExpired = true;
     alert('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
     doLogout();
 }
@@ -304,6 +314,8 @@ function endExpiredSession() {
  * like a broken page.
  */
 async function apiFetch(url, options = {}) {
+    // Already logging out - don't spend a request on a token we know is dead.
+    if (sessionExpired) throw new Error('SESSION_EXPIRED');
     const res = await fetch(url, {
         ...options,
         headers: { 'Authorization': 'Bearer ' + aiToken, ...(options.headers || {}) }
@@ -523,15 +535,21 @@ async function loadAll() {
     lucide.createIcons();
 }
 
-(async function init() {
-    await loadCompanies();
-    await loadAll();
-    lucide.createIcons();
-})().catch(e => {
-    const errBox = document.getElementById('errorBox');
-    errBox.textContent = 'เกิดข้อผิดพลาด: ' + e.message;
-    errBox.classList.remove('hidden');
-});
+// Skipped entirely when initSession() already found the token expired, so a logging-out page doesn't
+// fire doomed requests on its way out. SESSION_EXPIRED is swallowed because the alert already said
+// it - surfacing it in the red error box too just looks like a second, unrelated failure.
+if (!sessionExpired) {
+    (async function init() {
+        await loadCompanies();
+        await loadAll();
+        lucide.createIcons();
+    })().catch(e => {
+        if (e.message === 'SESSION_EXPIRED') return;
+        const errBox = document.getElementById('errorBox');
+        errBox.textContent = 'เกิดข้อผิดพลาด: ' + e.message;
+        errBox.classList.remove('hidden');
+    });
+}
 </script>
 </body>
 </html>

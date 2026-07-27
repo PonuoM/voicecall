@@ -180,15 +180,20 @@ lucide.createIcons();
 let apiBase = '../api/index.php';
 let currentDefaultPrompt = '';
 let adminUser = null;
+// Declared above the session check on purpose: that block runs while this script is still parsing,
+// so a `let` placed further down would be in its temporal dead zone and throw when it's read.
+let sessionExpired = false;
 
 // Init session check
 const sessionData = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
 if (sessionData) {
     try {
         const user = JSON.parse(sessionData);
-        if (user.is_super_admin && isStoredSessionExpired(sessionData)) {
+        if (isStoredSessionExpired(sessionData)) {
             // Stored sessions never expire on their own, so an already-dead token would otherwise
-            // be replayed until every request 401s and the page just sat there empty.
+            // be replayed until every request 401s and the page just sat there empty. Checked ahead
+            // of the role, because a dead session is dead whoever owns it - a non-super-admin with
+            // an expired token used to be told "Access Denied" instead of the real reason.
             endExpiredSession();
         } else if (user.is_super_admin) {
             adminUser = user;
@@ -228,13 +233,21 @@ function isStoredSessionExpired(raw) {
     } catch (e) { return false; }
 }
 
+/**
+ * Guarded because doLogout() only *queues* a navigation - the rest of this script keeps running, so
+ * a second expiry could otherwise alert again before the page went away.
+ */
 function endExpiredSession() {
+    if (sessionExpired) return;
+    sessionExpired = true;
     alert('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
     doLogout();
 }
 
 /** Single place that reacts to the API rejecting our token - see the same helper in the other dashboards. */
 async function apiFetch(url, options = {}) {
+    // Already logging out - don't spend a request on a token we know is dead.
+    if (sessionExpired) throw new Error('SESSION_EXPIRED');
     const res = await fetch(url, {
         ...options,
         headers: { ...getAuthHeaders(), ...(options.headers || {}) }
@@ -285,7 +298,9 @@ async function loadPrompt() {
             showToast('error', 'โหลดข้อมูลล้มเหลว: ' + data.message);
         }
     } catch (e) {
-        showToast('error', 'Network error');
+        // An expired session is not a network problem - endExpiredSession() already said so and is
+        // navigating away, so a "Network error" toast here would only misdirect.
+        if (e.message !== 'SESSION_EXPIRED') showToast('error', 'Network error');
     }
     document.getElementById('loadingOverlay').classList.add('hidden');
 }
@@ -314,7 +329,8 @@ async function savePrompt() {
             showToast('error', 'บันทึกล้มเหลว: ' + (data.message || data.error));
         }
     } catch (e) {
-        showToast('error', 'Network error');
+        // An expired session is not a network problem - see loadPrompt().
+        if (e.message !== 'SESSION_EXPIRED') showToast('error', 'Network error');
     }
     document.getElementById('loadingOverlay').classList.add('hidden');
 }

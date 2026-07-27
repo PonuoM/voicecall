@@ -11,6 +11,15 @@
 -- in the filename (positions 10-15 of "YYYYMMDD_HHMMSS_..."). A row that was already shifted differs
 -- from its filename time by exactly 7h, so it can never re-match — running this twice is a no-op.
 -- The filename itself is intentionally left as UTC so GdriveIndexer stays consistent (see 008).
+--
+-- Requires 008 to have run first: the second UPDATE writes tz_normalized, a column 008 adds.
+--
+-- STATUS 2026-07-27 — checked against production (primacom_voicelog) and NOT run, because it has
+-- nothing to do there: all 44,673 OneCall-shaped rows already sit exactly +420 min from their
+-- filename time, and 0 rows match the unshifted predicate below. 008 had already normalized the
+-- backlog, and process_single.php evidently hasn't inserted a row since (it's a manual one-call
+-- endpoint). The local dev DB has no OneCall-shaped rows at all. Kept as insurance in case an
+-- older snapshot is ever restored - re-check the count before running it.
 
 ALTER TABLE gdrive_file_index ADD COLUMN tz_tmp DATETIME NULL;
 
