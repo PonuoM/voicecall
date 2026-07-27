@@ -5,6 +5,7 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../Services/OneCallClient.php';
 require_once __DIR__ . '/../Services/GoogleDriveUploader.php';
 require_once __DIR__ . '/../Services/WavInfo.php';
+require_once __DIR__ . '/../Services/GdriveIndexer.php';
 
 $envPath = __DIR__ . '/../../.env';
 if (!file_exists($envPath)) {
@@ -106,6 +107,19 @@ try {
     $directionUpper = strtoupper($direction);
     $fileName = "{$dateStr}_{$callId}-{$encodedCaller}-{$encodedReceiver}-{$directionUpper}.wav";
     $tempFile = sys_get_temp_dir() . '/' . $fileName;
+
+    // OneCall stamps its `start` in UTC. The filename deliberately keeps that UTC time so the
+    // Drive-walk indexer (GdriveIndexer::parseFilename) reparses it identically and the two paths
+    // never disagree — but the stored call_date/call_time columns must be Asia/Bangkok like every
+    // other path, or these rows show 7h early in the dashboard and never line up with
+    // primacom_mini_erp.call_history (which is local), so CRM matching silently fails. Reuse
+    // parseFilename so the +7h shift rule lives in exactly one place.
+    // See migrations/008_fix_onecall_timezone.sql and migrations/009_fix_process_single_utc.sql.
+    $parsed = GdriveIndexer::parseFilename($fileName);
+    if ($parsed && !empty($parsed['call_date']) && !empty($parsed['call_time'])) {
+        $callDate = $parsed['call_date'];
+        $callTime = $parsed['call_time'];
+    }
 
     // Deduplication Best Practice: Check if file exists in Google Drive by timestamp
     $existingFileId = null;
