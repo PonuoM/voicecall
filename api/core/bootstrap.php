@@ -66,9 +66,20 @@ $id = $parts[1] ?? null;
 $action = $parts[2] ?? null;
 
 if ($resource === '' || $resource === 'health') {
-    json_response(['ok' => true, 'status' => 'healthy', 'version' => API_VERSION]);
+    // Only exit with healthy status if we are actually handling an HTTP request to the root, not CLI
+    if (PHP_SAPI !== 'cli') {
+        json_response(['ok' => true, 'status' => 'healthy', 'version' => API_VERSION]);
+    }
 }
 
 // Auth itself happens in ../login.php (existing dashboard login against primacom_mini_erp),
 // which mints the bearer token this API validates. Every resource here requires that token.
-$currentUser = validate_auth($pdo);
+$isCronScript = strpos($_SERVER['SCRIPT_NAME'] ?? '', '/cron/') !== false;
+
+if ($resource === 'erp' || $isCronScript || PHP_SAPI === 'cli') {
+    // The ERP resource handles its own auth via ERP_API_KEY in ErpController
+    // Cron endpoints handle their own auth via CRON_HTTP_KEY
+    $currentUser = null;
+} else {
+    $currentUser = validate_auth($pdo);
+}

@@ -16,7 +16,7 @@ Read the transcript and context, and produce a structured analysis. Output stric
 
 {
   "summary": {
-    "executive_summary": "2-4 sentence summary of the whole conversation (in Thai)",
+    "executive_summary": "สรุปสาเหตุที่ยกเลิกออเดอร์หรือตีกลับแบบสั้นๆ ถอดความจากบทสนทนาจริงเท่านั้น ห้ามเดาหรือแต่งเติม (ไม่ต้องเกริ่นนำใดๆ ถ้าในบทสนทนาไม่มีการบอกเหตุผล ให้ตอบแค่ว่า 'ไม่พบสาเหตุในบทสนทนา')",
     "key_topics": ["topic1", "topic2"],
     "action_items": [{"description": "...", "owner": "employee|customer|unspecified", "due_date": "YYYY-MM-DD or null"}],
     "decisions_made": ["decision1"],

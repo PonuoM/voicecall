@@ -54,6 +54,11 @@ try {
             handle_prompts($pdo, $currentUser, $id, $action);
             break;
 
+        case 'erp':
+            require_once __DIR__ . '/Controllers/ErpController.php';
+            handle_erp($pdo, erp(), $currentUser, $id, $action);
+            break;
+
         default:
             json_response(['ok' => false, 'error' => 'NOT_FOUND', 'message' => "Unknown resource '{$resource}'"], 404);
     }

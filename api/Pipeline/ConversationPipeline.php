@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../Agents/SttAgent.php';
 require_once __DIR__ . '/../Agents/UnifiedPipelineAgent.php';
 require_once __DIR__ . '/../Agents/KnowledgeIndexerAgent.php';
+require_once __DIR__ . '/../Services/ErpWebhookService.php';
 
 /**
  * Runs the full 5-stage agent pipeline against one conversation, persisting status as it goes
@@ -43,11 +44,17 @@ class ConversationPipeline
 
             self::setStatus($pdo, $conversationId, 'completed');
 
+            ErpWebhookService::sendSummary($pdo, $conversationId);
+
             return ['ok' => true, 'conversation_id' => $conversationId, 'status' => 'completed', 'transcript' => $transcript];
         } catch (Throwable $e) {
             $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
                 ->execute(['failed', $e->getMessage(), $conversationId]);
             file_put_contents(LOG_DIR . '/pipeline_error.log', date('Y-m-d H:i:s') . " conversation={$conversationId} " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
+            
+            // Notify ERP that the AI process failed
+            ErpWebhookService::sendError($pdo, $conversationId, 'PIPELINE_FAILED', $e->getMessage());
+
             return ['ok' => false, 'conversation_id' => $conversationId, 'status' => 'failed', 'error' => $e->getMessage()];
         }
     }
