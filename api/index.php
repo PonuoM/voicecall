@@ -39,6 +39,11 @@ try {
             handle_ghost_numbers($pdo, erp(), $currentUser, $id);
             break;
 
+        case 'returned-orders':
+            require_once __DIR__ . '/Controllers/ReturnedOrderController.php';
+            handle_returned_orders($pdo, erp(), $currentUser, $id);
+            break;
+
         case 'assistant':
             require_once __DIR__ . '/Controllers/AssistantController.php';
             handle_assistant($pdo, $currentUser, $id, $action);

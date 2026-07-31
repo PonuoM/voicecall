@@ -33,6 +33,7 @@
         <a href="fraud_dashboard.html" class="rail-item active"><i data-lucide="shield-alert"></i><span class="lbl">ตรวจทุจริต</span></a>
         <a href="long_calls.html" class="rail-item"><i data-lucide="timer"></i><span class="lbl">สายยาวผิดปกติ</span></a>
         <a href="ghost_numbers.html" class="rail-item"><i data-lucide="user-x"></i><span class="lbl">เบอร์ต้องสงสัย</span></a>
+        <a href="returned_orders.html" class="rail-item"><i data-lucide="package-x"></i><span class="lbl">ออเดอร์ตีกลับ</span></a>
     </nav>
     <div class="rail-group-label">ระบบ</div>
     <nav>
@@ -193,6 +194,9 @@ lucide.createIcons();
 
 const API_BASE = '../api/index.php'; // same convention as index.html CONFIG.AI_API_URL (no .htaccess rewrite)
 let aiToken = null;
+// Declared above initSession() on purpose: that IIFE runs while this script is still parsing, so a
+// `let` placed further down would be in its temporal dead zone and throw when the IIFE reads it.
+let sessionExpired = false;
 
 // Same session source as sync_dashboard.html: user object written by login.php via index.html.
 (function initSession() {
@@ -213,6 +217,13 @@ let aiToken = null;
     if (!aiToken) {
         alert('ไม่พบ token กรุณาเข้าสู่ระบบใหม่');
         window.location.href = '../index.html';
+        return;
+    }
+    // The stored session carries no expiry of its own, so without this a token that already died
+    // server-side keeps being replayed and every request 401s into a page that just looks empty.
+    if (isStoredSessionExpired(raw)) {
+        endExpiredSession();
+        return;
     }
 })();
 
@@ -222,8 +233,43 @@ function doLogout() {
     window.location.href = '../index.html';
 }
 
-function authHeaders() {
-    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiToken };
+/** login.php sends api_token_expires_at as a UNIX epoch, so this can't be skewed by the client clock. */
+function isStoredSessionExpired(raw) {
+    try {
+        const exp = JSON.parse(raw).api_token_expires_at;
+        return !!exp && Date.now() / 1000 >= exp;
+    } catch (e) { return false; }
+}
+
+/**
+ * Guarded because doLogout() only *queues* a navigation - the rest of this script keeps running, so
+ * loadAll() would still fire, 401, and alert again before the page went away. This page fans out
+ * loadSummary() and loadChecks() in parallel, so without the guard one expiry meant three alerts.
+ */
+function endExpiredSession() {
+    if (sessionExpired) return;
+    sessionExpired = true;
+    alert('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+    doLogout();
+}
+
+/**
+ * Single place that reacts to the API rejecting our token. Before this, every caller on this page
+ * swallowed the 401 into an empty table or a generic error, so an ended session looked exactly
+ * like a broken page.
+ */
+async function apiFetch(url, options = {}) {
+    // Already logging out - don't spend a request on a token we know is dead.
+    if (sessionExpired) throw new Error('SESSION_EXPIRED');
+    const res = await fetch(url, {
+        ...options,
+        headers: { 'Authorization': 'Bearer ' + aiToken, ...(options.headers || {}) }
+    });
+    if (res.status === 401) {
+        endExpiredSession();
+        throw new Error('SESSION_EXPIRED');
+    }
+    return res;
 }
 
 const RISK_CHIP = {
@@ -261,7 +307,7 @@ function localPhone(p) {
 }
 
 async function loadSummary() {
-    const res = await fetch(`${API_BASE}/fraud/summary`, { headers: authHeaders() });
+    const res = await apiFetch(`${API_BASE}/fraud/summary`);
     const data = await res.json();
     if (!data.ok) return;
     const o = data.overall || {};
@@ -301,7 +347,7 @@ async function loadChecks() {
     if (checkType) params.set('check_type', checkType);
     params.set('status', status || 'all');
 
-    const res = await fetch(`${API_BASE}/fraud?${params}`, { headers: authHeaders() });
+    const res = await apiFetch(`${API_BASE}/fraud?${params}`);
     const data = await res.json();
     if (!data.ok) {
         list.innerHTML = `<div class="case-empty crit">โหลดข้อมูลไม่สำเร็จ: ${esc(data.message || data.error)}</div>`;
@@ -364,9 +410,9 @@ async function review(id, decision) {
     const label = decision === 'confirmed' ? 'ยืนยันว่าเป็นการทุจริต' : 'ปัดตก (ไม่ใช่การทุจริต)';
     const note = prompt(`${label}\nใส่บันทึกเพิ่มเติม (เว้นว่างได้):`);
     if (note === null) return; // cancelled
-    const res = await fetch(`${API_BASE}/fraud/${id}/review`, {
+    const res = await apiFetch(`${API_BASE}/fraud/${id}/review`, {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, note }),
     });
     const data = await res.json();
@@ -378,11 +424,16 @@ async function review(id, decision) {
 }
 
 function loadAll() {
-    loadSummary().catch(console.error);
-    loadChecks().catch(console.error);
+    // SESSION_EXPIRED is not a page failure - endExpiredSession() already alerted and is navigating
+    // away, so logging it once per in-flight request only adds console noise.
+    const ignoreExpiry = e => { if (e.message !== 'SESSION_EXPIRED') console.error(e); };
+    loadSummary().catch(ignoreExpiry);
+    loadChecks().catch(ignoreExpiry);
 }
 
-loadAll();
+// Skipped when initSession() already found the token expired, so a logging-out page doesn't fire
+// two doomed requests on its way out.
+if (!sessionExpired) loadAll();
 lucide.createIcons();
 </script>
 </body>
