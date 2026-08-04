@@ -46,7 +46,12 @@ class ConversationPipeline
 
             ErpWebhookService::sendSummary($pdo, $conversationId);
 
-            return ['ok' => true, 'conversation_id' => $conversationId, 'status' => 'completed', 'transcript' => $transcript];
+            require_once __DIR__ . '/../Services/ConversationDataService.php';
+            $detail = ConversationDataService::getFullDetail($pdo, $conversationId);
+            $detail['ok'] = true;
+            $detail['status'] = 'completed';
+
+            return $detail;
         } catch (Throwable $e) {
             $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
                 ->execute(['failed', $e->getMessage(), $conversationId]);

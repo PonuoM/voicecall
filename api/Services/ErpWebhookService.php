@@ -19,38 +19,31 @@ class ErpWebhookService
         }
 
         try {
-            $conv = fetch_one($pdo, 'SELECT * FROM conversations WHERE id = ?', [$conversationId]);
-            if (!$conv) return;
+            require_once __DIR__ . '/ConversationDataService.php';
+            $fullDetail = ConversationDataService::getFullDetail($pdo, $conversationId);
+            if (!$fullDetail) return;
 
-            $summary = fetch_one($pdo, 'SELECT * FROM summaries WHERE conversation_id = ?', [$conversationId]);
-            $entities = fetch_one($pdo, 'SELECT * FROM extracted_entities WHERE conversation_id = ?', [$conversationId]);
-
-            // Decode JSON fields if present
-            $keywords = [];
-            if ($summary && !empty($summary['important_keywords'])) {
-                $decoded = json_decode($summary['important_keywords'], true);
-                if (is_array($decoded)) {
-                    $keywords = $decoded;
-                }
-            }
+            $conv = $fullDetail['conversation'];
+            $summary = $fullDetail['summary'] ?? [];
+            $entities = $fullDetail['entities'] ?? [];
 
             $payload = [
                 'conversation_id' => $conversationId,
+                'audio_ref' => $conv['audio_ref'] ?? null,
                 'call_date' => $conv['call_date'] ?? null,
                 'call_time' => $conv['call_time'] ?? null,
                 'caller_phone' => $conv['caller_phone'] ?? null,
                 'receiver_phone' => $conv['receiver_phone'] ?? null,
-                'direction' => $conv['direction'] ?? null,
                 'erp_customer_id' => $conv['erp_customer_id'] ?? null,
-                'erp_employee_id' => $conv['erp_employee_id'] ?? null,
                 'summary' => [
                     'executive_summary' => $summary['executive_summary'] ?? null,
                     'customer_sentiment' => $summary['customer_sentiment'] ?? null,
-                    'important_keywords' => $keywords
                 ],
-                'entities' => [
+                'sales_and_issues' => [
+                    'sale_outcome' => $entities['sale_outcome'] ?? null,
                     'issue_category' => $entities['issue_category'] ?? null,
-                    'priority' => $entities['priority'] ?? null,
+                    'complaint_or_reason' => $entities['complaint'] ?? null,
+                    'customer_request' => $entities['request'] ?? null
                 ]
             ];
 
@@ -109,8 +102,11 @@ class ErpWebhookService
         }
 
         try {
+            $conv = fetch_one($pdo, 'SELECT * FROM conversations WHERE id = ?', [$conversationId]);
             $payload = [
                 'conversation_id' => $conversationId,
+                'caller_phone' => $conv['caller_phone'] ?? null,
+                'receiver_phone' => $conv['receiver_phone'] ?? null,
                 'status' => 'failed',
                 'error_code' => $errorCode,
                 'message' => $errorMessage
