@@ -258,10 +258,17 @@ lucide.createIcons();
         let currentCompanyId = null;
         let currentFolderId = null;
 
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
         function doLogout() {
-            sessionStorage.removeItem('voicecall_user');
-            localStorage.removeItem('voicecall_user_shared');
-            window.location.href = '../index.html';
+            // Revoke the token server-side, then leave — see index.html's doLogout().
+            fetch('../logout.php', { method: 'POST' })
+                .catch(() => {})
+                .finally(() => {
+                    sessionStorage.removeItem('voicecall_user');
+                    localStorage.removeItem('voicecall_user_shared');
+                    window.location.href = '../index.html';
+                });
         }
 
         // Init session
@@ -493,9 +500,9 @@ lucide.createIcons();
             const tbody = document.getElementById('logTableBody');
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td class="mono-ish">${id}</td>
-                <td class="mono-ish faint">${driveId}</td>
-                <td><span class="chip ${statusClass}">${statusText}</span></td>
+                <td class="mono-ish">${esc(id)}</td>
+                <td class="mono-ish faint">${esc(driveId)}</td>
+                <td><span class="chip ${statusClass}">${esc(statusText)}</span></td>
             `;
             tbody.insertBefore(tr, tbody.firstChild);
         }

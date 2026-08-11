@@ -18,7 +18,7 @@ function handle_drive_index(PDO $pdo, array $currentUser, ?string $id): void
         json_response(['ok' => false, 'error' => 'NOT_FOUND'], 404);
     }
 
-    $companyId = !empty($_GET['company_id']) ? (int) $_GET['company_id'] : (int) ($currentUser['erp_company_id'] ?? 0);
+    $companyId = resolve_company_id($currentUser, $_GET['company_id'] ?? null);
     if (!$companyId) {
         json_response(['ok' => false, 'error' => 'VALIDATION', 'message' => 'company_id is required'], 422);
     }
@@ -62,7 +62,7 @@ function handle_drive_index(PDO $pdo, array $currentUser, ?string $id): void
  */
 function sync_drive_index(PDO $pdo, array $currentUser): void
 {
-    $companyId = !empty($_GET['company_id']) ? (int) $_GET['company_id'] : (int) ($currentUser['erp_company_id'] ?? 0);
+    $companyId = resolve_company_id($currentUser, $_GET['company_id'] ?? null);
     if (!$companyId) {
         json_response(['ok' => false, 'error' => 'VALIDATION', 'message' => 'company_id is required'], 422);
     }

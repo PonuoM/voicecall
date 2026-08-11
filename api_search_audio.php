@@ -28,14 +28,22 @@ if (empty($authHeader) && isset($_SERVER['HTTP_AUTHORIZATION'])) {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
 }
 
+// Fail closed when no token is configured. config.php has no 'api' => ['auth_token'] key on every
+// deployment (the local dev box being one), which made $AUTH_TOKEN an empty string — and an empty
+// string compares equal to `?token=` with nothing after it, so the endpoint authenticated anyone
+// who left the parameter blank.
+if ($AUTH_TOKEN === '') {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Server misconfigured: api.auth_token is not set']);
+    exit;
+}
+
 // Support both Bearer Token and simple ?token=... for testing flexibility
 $tokenValid = false;
 if (preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-    if ($matches[1] === $AUTH_TOKEN) {
-        $tokenValid = true;
-    }
-} else if (isset($_GET['token']) && $_GET['token'] === $AUTH_TOKEN) {
-    $tokenValid = true;
+    $tokenValid = hash_equals($AUTH_TOKEN, $matches[1]);
+} else if (isset($_GET['token'])) {
+    $tokenValid = hash_equals($AUTH_TOKEN, (string) $_GET['token']);
 }
 
 if (!$tokenValid) {
@@ -121,7 +129,11 @@ function getGoogleAccessToken($jsonFilePath) {
         'assertion' => $jwt
     ]));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    // This exchange trades a signed JWT for a Drive access token — verifying the certificate is
+    // what stops that token being handed to an interceptor.
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+    curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/api/certs/cacert.pem');
 
     $response = curl_exec($ch);
     if (curl_errno($ch)) {
@@ -157,7 +169,9 @@ try {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/api/certs/cacert.pem');
         curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer {$accessToken}"]);
         
         $response = curl_exec($ch);

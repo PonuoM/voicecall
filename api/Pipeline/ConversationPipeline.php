@@ -76,8 +76,16 @@ class ConversationPipeline
      */
     private static function clearPriorOutput(PDO $pdo, int $conversationId): void
     {
-        foreach (['transcripts', 'summaries', 'keywords', 'action_items', 'conversation_tags', 'extracted_entities', 'compliance_reports', 'knowledge_chunks', 'speakers', 'fraud_checks'] as $table) {
+        foreach (['transcripts', 'summaries', 'keywords', 'action_items', 'conversation_tags', 'extracted_entities', 'compliance_reports', 'knowledge_chunks', 'speakers'] as $table) {
             $pdo->prepare("DELETE FROM {$table} WHERE conversation_id = ?")->execute([$conversationId]);
         }
+
+        // fraud_checks is deliberately not in that list. Its rows are not just agent output — a
+        // reviewer's verdict lives in the same row (review_status/reviewed_by/review_note/
+        // reviewed_at), so wiping the table on reprocess destroyed the human decision and the
+        // evidence quote it was based on. Only never-reviewed rows are cleared; anything a person
+        // has already confirmed or dismissed is kept as the audit record of that call.
+        $pdo->prepare("DELETE FROM fraud_checks WHERE conversation_id = ? AND review_status = 'pending'")
+            ->execute([$conversationId]);
     }
 }

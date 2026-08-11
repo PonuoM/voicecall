@@ -1,0 +1,9 @@
+# Never served over HTTP. Cached call recordings, error logs and the CA bundle all live under
+# api/ purely because the PHP reads them off the filesystem.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

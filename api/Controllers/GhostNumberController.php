@@ -16,7 +16,7 @@ function handle_ghost_numbers(PDO $pdo, PDO $erp, array $currentUser, ?string $i
         json_response(['ok' => false, 'error' => 'NOT_FOUND'], 404);
     }
 
-    $companyId = !empty($_GET['company_id']) ? (int) $_GET['company_id'] : (int) ($currentUser['erp_company_id'] ?? 0);
+    $companyId = resolve_company_id($currentUser, $_GET['company_id'] ?? null);
     if (!$companyId) {
         json_response(['ok' => false, 'error' => 'VALIDATION', 'message' => 'company_id is required'], 422);
     }

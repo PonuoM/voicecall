@@ -1,5 +1,10 @@
 <?php
 // api/sync/setup_oauth.php
+// Super-admin only: this page rewrites the Drive OAuth credentials in .env, so an anonymous
+// visitor could previously point the whole sync pipeline at a Google account they controlled.
+require_once __DIR__ . '/_auth.php';
+sync_require_super_admin(sync_auth(true), true);
+
 session_start();
 
 $envPath = __DIR__ . '/../../.env';
@@ -77,7 +82,11 @@ if (isset($_GET['code'])) {
         'grant_type' => 'authorization_code'
     ]));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    // This request carries the OAuth client secret and receives a refresh token; disabling
+    // certificate verification handed both to anyone able to intercept the connection.
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+    curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/../certs/cacert.pem');
     
     $response = curl_exec($ch);
     $data = json_decode($response, true);

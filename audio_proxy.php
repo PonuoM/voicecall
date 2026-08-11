@@ -26,7 +26,11 @@ const PROXY_CACHE_DIR = AUDIO_CACHE_DIR . '/proxy_src';
 const PROXY_CACHE_MAX_BYTES = 1073741824; // 1 GB of cached source files
 const PROXY_CACHE_MAX_AGE = 86400;
 
-header('Access-Control-Allow-Origin: *');
+// No CORS header: this is only ever loaded same-origin by <audio src> / the download link. It used
+// to send `Access-Control-Allow-Origin: *` with no authentication at all, which made every call
+// recording in the company readable by anyone who could guess or obtain a Drive file id.
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: same-origin');
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
     exit;
@@ -40,6 +44,21 @@ if ($fileId === '' || !preg_match('/^[A-Za-z0-9_-]{10,128}$/', $fileId)) {
     http_response_code(400);
     die('Missing or invalid id');
 }
+
+// Authenticate before touching Drive. A media element can't send an Authorization header, so the
+// credential arrives as the HttpOnly cookie login.php sets — see api/core/session_cookie.php.
+try {
+    $authPdo = db_connect();
+} catch (Throwable $e) {
+    http_response_code(503);
+    die('Auth backend unavailable');
+}
+$currentUser = get_authenticated_user($authPdo);
+if (!$currentUser) {
+    http_response_code(401);
+    die('Unauthorized');
+}
+proxy_authorize_company($authPdo, $currentUser, $fileId);
 
 $isDownload = !empty($_GET['dl']);
 
@@ -98,6 +117,35 @@ proxy_serve(null, $layout['totalSize'], $producer, $isDownload, $fileId);
 // ---------------------------------------------------------------------------
 
 /**
+ * 403s when the requested recording demonstrably belongs to another company. The file's company is
+ * resolved from gdrive_file_index (written by cron/sync_gdrive_index.php) and, failing that, from
+ * a conversations row registered against the same audio_ref.
+ *
+ * A file neither table knows about is allowed through, because the Drive index lags Drive itself
+ * and a same-day recording would otherwise be unplayable. That residual gap is not the weak link
+ * anyway: index.html still scans Drive from the browser with a full `drive` OAuth scope, so a
+ * logged-in user who wants another company's audio can fetch it from Google directly, without
+ * this proxy. Closing that properly means moving the Drive listing server-side.
+ */
+function proxy_authorize_company(PDO $pdo, array $currentUser, string $fileId): void
+{
+    if (!empty($currentUser['erp_is_super_admin'])) {
+        return;
+    }
+
+    $row = fetch_one($pdo, 'SELECT company_id FROM gdrive_file_index WHERE gdrive_file_id = ?', [$fileId])
+        ?: fetch_one($pdo, 'SELECT company_id FROM conversations WHERE audio_ref = ?', [$fileId]);
+
+    if ($row === null) {
+        return;
+    }
+    if ((int) $row['company_id'] !== (int) ($currentUser['erp_company_id'] ?? 0)) {
+        http_response_code(403);
+        die('Forbidden');
+    }
+}
+
+/**
  * Source WAV bytes for a Drive file, cached on disk. Seeking in a long recording issues many
  * ranged requests; without this each one would re-download the same multi-MB file from Drive.
  */
@@ -116,13 +164,23 @@ function proxy_load_source(string $fileId): string
         }
     }
 
-    $apiKey = defined('GDRIVE_API_KEY') && GDRIVE_API_KEY ? GDRIVE_API_KEY : 'AIzaSyCCIywRsoHuBzVTm-B-FA8N7VzAcECIEBE';
+    // No hardcoded fallback key any more — one used to sit in this file in plaintext, in git, and
+    // was shipped to every visitor inside index.html's CONFIG besides.
+    $apiKey = defined('GDRIVE_API_KEY') ? GDRIVE_API_KEY : '';
+    if ($apiKey === '') {
+        throw new RuntimeException('GDRIVE_API_KEY is not configured');
+    }
     $url = "https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media&key={$apiKey}";
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_SSL_VERIFYPEER => false,
+        // Certificate verification is on: with VERIFYPEER=false anyone able to intercept the
+        // connection could feed this proxy arbitrary audio and read the API key off the request.
+        // The CA bundle is the one OpenRouterClient/GdriveIndexer already ship with.
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_CAINFO => __DIR__ . '/api/certs/cacert.pem',
         CURLOPT_TIMEOUT => 120,
     ]);
     $data = curl_exec($ch);
@@ -192,7 +250,9 @@ function proxy_serve(?string $whole, int $totalSize, callable $producer, bool $i
 {
     header('Accept-Ranges: bytes');
     header('Content-Type: audio/wav');
-    header('Cache-Control: public, max-age=3600');
+    // `private` (was `public`): call recordings must never be held by a shared proxy or CDN. The
+    // browser may still cache them, which is what makes seeking within a played file cheap.
+    header('Cache-Control: private, max-age=3600');
     if ($isDownload) {
         header('Content-Disposition: attachment; filename="' . $fileId . '.wav"');
     }

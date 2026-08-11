@@ -2,9 +2,12 @@
 config.php
 .env
 
-# AI pipeline runtime cache
-api/storage/audio_cache/
-api/logs/
+# AI pipeline runtime cache. The .htaccess files are the exception — they are what stops the web
+# server handing out cached recordings and error logs, so they have to be versioned and deployed.
+api/storage/audio_cache/*
+!api/storage/audio_cache/.htaccess
+api/logs/*
+!api/logs/.htaccess
 
 # Recordings / large data
 20260120-20260131/

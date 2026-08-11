@@ -220,10 +220,17 @@ let sessionExpired = false;
     }
 })();
 
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
 function doLogout() {
-    sessionStorage.removeItem('voicecall_user');
-    localStorage.removeItem('voicecall_user_shared');
-    window.location.href = '../index.html';
+    // Revoke the token server-side, then leave — see index.html's doLogout().
+    fetch('../logout.php', { method: 'POST' })
+        .catch(() => {})
+        .finally(() => {
+            sessionStorage.removeItem('voicecall_user');
+            localStorage.removeItem('voicecall_user_shared');
+            window.location.href = '../index.html';
+        });
 }
 
 /** login.php sends api_token_expires_at as a UNIX epoch, so this can't be skewed by the client clock. */
@@ -336,7 +343,7 @@ async function loadAll() {
         const est = st.avg_cost_per_call_usd ? d.calls * st.avg_cost_per_call_usd : null;
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${d.day}</td>
+            <td>${esc(d.day)}</td>
             <td class="num">${d.calls}</td>
             <td class="num">${d.minutes ?? '-'}</td>
             <td class="num">${est ? usd(est) + ' <span class="dim">' + thb(est) + '</span>' : '-'}</td>`;

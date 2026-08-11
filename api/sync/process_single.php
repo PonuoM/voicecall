@@ -2,6 +2,9 @@
 // api/sync/process_single.php
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/_auth.php';
+$syncUser = sync_auth();
+
 require_once __DIR__ . '/../Services/OneCallClient.php';
 require_once __DIR__ . '/../Services/GoogleDriveUploader.php';
 require_once __DIR__ . '/../Services/WavInfo.php';
@@ -12,7 +15,7 @@ if (!file_exists($envPath)) {
     echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
-$env = parse_ini_file($envPath);
+$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
 
 $localDb = [
     'host'     => $env['DB_HOST'] ?? 'localhost',
@@ -44,7 +47,10 @@ $startTime = $isJson ? (!empty($input['record']['start']) ? $input['record']['st
 $caller = $isJson ? (!empty($input['record']['caller']) ? $input['record']['caller'] : '000000000') : (!empty($_POST['caller']) ? $_POST['caller'] : '000000000');
 $receiver = $isJson ? (!empty($input['record']['receiver']) ? $input['record']['receiver'] : '000000000') : (!empty($_POST['receiver']) ? $_POST['receiver'] : '000000000');
 $direction = $isJson ? (!empty($input['record']['direction']) ? $input['record']['direction'] : 'OUT') : (!empty($_POST['direction']) ? $_POST['direction'] : 'OUT');
-$companyId = $isJson ? ($input['company_id'] ?? 1) : ($_POST['company_id'] ?? 1); 
+// Company comes from the caller's token, not the request body — this used to default to company 1
+// and accept whatever a browser sent, so any caller could pull another company's OneCall
+// recordings into their Drive folder.
+$companyId = sync_company_id($syncUser, $isJson ? ($input['company_id'] ?? null) : ($_POST['company_id'] ?? null));
 $folderId = $isJson ? ($input['folder_id'] ?? '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet') : ($_POST['folder_id'] ?? '1DcjFeLhr4Uq2mBA4WcPLRxbqZgiwHKet');
 $allowDuplicates = $isJson ? ($input['allow_duplicates'] ?? false) : ($_POST['allow_duplicates'] ?? false);
 

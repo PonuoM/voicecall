@@ -221,10 +221,17 @@ if (sessionData) {
     window.location.href = '../index.html';
 }
 
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
 function doLogout() {
-    sessionStorage.removeItem('voicecall_user');
-    localStorage.removeItem('voicecall_user_shared');
-    window.location.href = '../index.html';
+    // Revoke the token server-side, then leave — see index.html's doLogout().
+    fetch('../logout.php', { method: 'POST' })
+        .catch(() => {})
+        .finally(() => {
+            sessionStorage.removeItem('voicecall_user');
+            localStorage.removeItem('voicecall_user_shared');
+            window.location.href = '../index.html';
+        });
 }
 
 async function loadCompanies() {
@@ -256,7 +263,7 @@ function renderTable(companies) {
 
         tr.innerHTML = `
             <td class="mono-ish faint">#${comp.id}</td>
-            <td class="emp">${comp.name}</td>
+            <td class="emp">${esc(comp.name)}</td>
             <td class="ctr">
                 <label class="toggle">
                     <input type="checkbox" id="toggle_${comp.id}"
@@ -369,8 +376,8 @@ async function openPreviewModal(companyId, companyName) {
                 data.trashFiles.forEach(f => {
                     tbody.innerHTML += `
                         <tr>
-                            <td class="mono-ish dim" style="vertical-align:top;font-size:11px;word-break:break-all">${f.keeperName}</td>
-                            <td class="mono-ish" style="vertical-align:top;font-size:11px;word-break:break-all;color:var(--high)">${f.trashName} <span class="faint">${formatBytes(f.trashSize)}</span></td>
+                            <td class="mono-ish dim" style="vertical-align:top;font-size:11px;word-break:break-all">${esc(f.keeperName)}</td>
+                            <td class="mono-ish" style="vertical-align:top;font-size:11px;word-break:break-all;color:var(--high)">${esc(f.trashName)} <span class="faint">${esc(formatBytes(f.trashSize))}</span></td>
                         </tr>
                     `;
                 });
