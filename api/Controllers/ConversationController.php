@@ -11,7 +11,7 @@ require_once __DIR__ . '/../Pipeline/ConversationPipeline.php';
 function handle_conversations(PDO $pdo, PDO $erp, array $currentUser, ?string $id, ?string $action): void
 {
     if ($id === null && method() === 'GET') {
-        list_conversations($pdo);
+        list_conversations($pdo, $currentUser);
         return;
     }
 
@@ -31,12 +31,12 @@ function handle_conversations(PDO $pdo, PDO $erp, array $currentUser, ?string $i
     }
 
     if ($id !== null && $action === null && method() === 'GET') {
-        get_conversation_detail($pdo, (int) $id);
+        get_conversation_detail($pdo, $currentUser, (int) $id);
         return;
     }
 
     if ($id !== null && $action === 'process' && method() === 'POST') {
-        process_conversation($pdo, $erp, (int) $id);
+        process_conversation($pdo, $erp, $currentUser, (int) $id);
         return;
     }
 
@@ -52,12 +52,12 @@ function handle_conversations(PDO $pdo, PDO $erp, array $currentUser, ?string $i
  */
 function conversation_status_map(PDO $pdo, array $currentUser): void
 {
-    $companyId = !empty($_GET['company_id']) ? (int) $_GET['company_id'] : (int) ($currentUser['erp_company_id'] ?? 0);
+    $companyId = resolve_company_id($currentUser, $_GET['company_id'] ?? null);
     $rows = fetch_all($pdo, 'SELECT id, source, audio_ref, status FROM conversations WHERE company_id = ?', [$companyId]);
     json_response(['ok' => true, 'data' => $rows]);
 }
 
-function list_conversations(PDO $pdo): void
+function list_conversations(PDO $pdo, array $currentUser): void
 {
     $page = max(1, (int) ($_GET['page'] ?? 1));
     $perPage = min(200, max(1, (int) ($_GET['per_page'] ?? 50)));
@@ -66,9 +66,16 @@ function list_conversations(PDO $pdo): void
     $where = [];
     $params = [];
 
-    if (!empty($_GET['company_id'])) {
+    // This filter used to be applied only when the request happened to pass ?company_id=, so the
+    // default was "every conversation in every company" — any logged-in user could page through
+    // the whole table, and naming another company's id worked just as well. A normal user is now
+    // pinned to their own company whatever they ask for; only a super admin still gets the
+    // unfiltered view (and can narrow it with ?company_id=), which is the behaviour that surface
+    // was presumably written for.
+    $requestedCompany = $_GET['company_id'] ?? null;
+    if (empty($currentUser['erp_is_super_admin']) || !empty($requestedCompany)) {
         $where[] = 'company_id = ?';
-        $params[] = (int) $_GET['company_id'];
+        $params[] = resolve_company_id($currentUser, $requestedCompany);
     }
     if (!empty($_GET['status'])) {
         $where[] = 'status = ?';
@@ -190,7 +197,7 @@ function register_one_conversation_row(PDO $pdo, PDO $erp, array $currentUser, a
         return ['error' => 'fileId (gdrive) or file (local) is required'];
     }
 
-    $companyId = !empty($input['company_id']) ? (int) $input['company_id'] : (int) ($currentUser['erp_company_id'] ?? 0);
+    $companyId = resolve_company_id($currentUser, $input['company_id'] ?? null);
     $callerPhone = nullable_str($input['caller'] ?? null);
     $receiverPhone = nullable_str($input['receiver'] ?? null);
     $direction = ($input['direction'] ?? null) === 'OUT' ? 'OUT' : (($input['direction'] ?? null) === 'IN' ? 'IN' : null);
@@ -237,12 +244,15 @@ function register_one_conversation_row(PDO $pdo, PDO $erp, array $currentUser, a
     return ['conversation' => $row, 'created' => true];
 }
 
-function get_conversation_detail(PDO $pdo, int $conversationId): void
+function get_conversation_detail(PDO $pdo, array $currentUser, int $conversationId): void
 {
     $conv = fetch_one($pdo, 'SELECT * FROM conversations WHERE id = ?', [$conversationId]);
     if (!$conv) {
         json_response(['ok' => false, 'error' => 'NOT_FOUND', 'message' => 'Conversation not found'], 404);
     }
+    // Everything below — transcript, recording metadata, fraud findings, the customer's and the
+    // employee's names — was previously returned for any id the caller cared to increment through.
+    require_company_access($currentUser, (int) $conv['company_id']);
 
     $transcript = fetch_one($pdo, 'SELECT * FROM transcripts WHERE conversation_id = ?', [$conversationId]);
     $segments = fetch_all($pdo, 'SELECT speaker_label, start_time, end_time, text FROM transcript_segments WHERE conversation_id = ? ORDER BY sequence ASC', [$conversationId]);
@@ -285,12 +295,15 @@ function get_conversation_detail(PDO $pdo, int $conversationId): void
     ]);
 }
 
-function process_conversation(PDO $pdo, PDO $erp, int $conversationId): void
+function process_conversation(PDO $pdo, PDO $erp, array $currentUser, int $conversationId): void
 {
     $conv = fetch_one($pdo, 'SELECT * FROM conversations WHERE id = ?', [$conversationId]);
     if (!$conv) {
         json_response(['ok' => false, 'error' => 'NOT_FOUND', 'message' => 'Conversation not found'], 404);
     }
+    // Not just a read: this spends money on STT + LLM calls against the owning company's budget.
+    require_company_access($currentUser, (int) $conv['company_id']);
+
     $result = ConversationPipeline::run($pdo, $erp, $conversationId);
     json_response($result, $result['ok'] ? 200 : 500);
 }

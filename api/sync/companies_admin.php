@@ -2,12 +2,18 @@
 // api/sync/companies_admin.php
 header('Content-Type: application/json');
 
+// Both branches are super-admin surface: GET enumerates every company in the ERP, POST rewrites
+// another company's sync settings.
+require_once __DIR__ . '/_auth.php';
+$syncUser = sync_auth();
+sync_require_super_admin($syncUser);
+
 $envPath = __DIR__ . '/../../.env';
 if (!file_exists($envPath)) {
     echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
-$env = parse_ini_file($envPath);
+$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
 
 $localDb = [
     'host'     => $env['DB_HOST'] ?? 'localhost',
@@ -75,22 +81,15 @@ try {
         $input = json_decode(file_get_contents('php://input'), true);
         $companyId = (int)($input['company_id'] ?? 0);
         $preventDuplicate = (int)($input['prevent_duplicate'] ?? 1);
-        $userId = (int)($input['user_id'] ?? 0); // User performing the action
 
-        if (!$companyId || !$userId) {
+        if (!$companyId) {
             echo json_encode(['success' => false, 'message' => 'Invalid parameters']);
             exit;
         }
 
-        // Security Check: Is user a Super Admin in ERP?
-        $stmtUser = $pdoErp->prepare("SELECT role_id FROM users WHERE id = ?");
-        $stmtUser->execute([$userId]);
-        $user = $stmtUser->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$user || !in_array((int)$user['role_id'], [1, 10, 14])) {
-            echo json_encode(['success' => false, 'message' => 'Unauthorized. Super Admin only.']);
-            exit;
-        }
+        // The old "Security Check" here looked up the role of whatever `user_id` the request
+        // carried, which authorised the claim rather than the caller. sync_require_super_admin()
+        // above now checks the verified token instead.
 
         // Upsert setting
         $stmtInsert = $pdoLocal->prepare("

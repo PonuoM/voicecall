@@ -2,12 +2,15 @@
 // api/sync/get_calendar_stats.php
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/_auth.php';
+$syncUser = sync_auth();
+
 $envPath = __DIR__ . '/../../.env';
 if (!file_exists($envPath)) {
     echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
-$env = parse_ini_file($envPath);
+$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
 
 $localDb = [
     'host'     => $env['DB_HOST'] ?? 'localhost',
@@ -16,7 +19,7 @@ $localDb = [
     'password' => $env['DB_PASS'] ?? ''
 ];
 
-$companyId = $_GET['company_id'] ?? 1;
+$companyId = sync_company_id($syncUser, $_GET['company_id'] ?? null);
 
 try {
     $pdo = new PDO(

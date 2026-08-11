@@ -2,6 +2,10 @@
 // api/sync/cleanup_duplicates.php
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/_auth.php';
+$syncUser = sync_auth();
+sync_require_super_admin($syncUser);
+
 require_once __DIR__ . '/../Services/GoogleDriveUploader.php';
 
 $envPath = __DIR__ . '/../../.env';
@@ -9,7 +13,7 @@ if (!file_exists($envPath)) {
     echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
-$env = parse_ini_file($envPath);
+$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
 
 $localDb = [
     'host'     => $env['DB_HOST'] ?? 'localhost',
@@ -28,23 +32,18 @@ $erpDb = [
 try {
     $input = json_decode(file_get_contents('php://input'), true);
     $action = $input['action'] ?? ($_GET['action'] ?? '');
-    $companyId = (int)($input['company_id'] ?? ($_GET['company_id'] ?? 0));
-    $userId = (int)($input['user_id'] ?? ($_GET['user_id'] ?? 0));
+    $companyId = sync_company_id($syncUser, $input['company_id'] ?? ($_GET['company_id'] ?? 0));
+    // The request's own `user_id` is ignored now — sync_require_super_admin() above authorises the
+    // verified token instead. The check that used to live here ("SELECT role_id FROM users WHERE
+    // id = $userId") authorised whoever the caller *claimed* to be, so posting user_id=1 was
+    // enough to delete Drive files.
 
-    if (!$action || !$companyId || !$userId) {
+    if (!$action || !$companyId) {
         throw new Exception("Missing parameters");
     }
 
     $pdoErp = new PDO("mysql:host={$erpDb['host']};dbname={$erpDb['database']};charset=utf8mb4", $erpDb['username'], $erpDb['password']);
     $pdoErp->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    // Security check
-    $stmtUser = $pdoErp->prepare("SELECT role_id FROM users WHERE id = ?");
-    $stmtUser->execute([$userId]);
-    $user = $stmtUser->fetch(PDO::FETCH_ASSOC);
-    if (!$user || !in_array((int)$user['role_id'], [1, 10, 14])) {
-        throw new Exception("Unauthorized. Super Admin only.");
-    }
 
     // Get Folder ID for the company from .env
     $folderId = $env["GDRIVE_FOLDER_ID_{$companyId}"] ?? null;

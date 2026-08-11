@@ -2,6 +2,9 @@
 // api/sync/get_pending_list.php
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/_auth.php';
+$syncUser = sync_auth();
+
 require_once __DIR__ . '/../Services/OneCallClient.php';
 $envPath = __DIR__ . '/../../.env';
 
@@ -10,7 +13,7 @@ if (!file_exists($envPath)) {
     exit;
 }
 
-$env = parse_ini_file($envPath);
+$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
 
 $localDb = [
     'host'     => $env['DB_HOST'] ?? 'localhost',
@@ -34,7 +37,7 @@ if (!$dateStart || !$dateEnd) {
     exit;
 }
 
-$companyId = $_GET['company_id'] ?? 1;
+$companyId = sync_company_id($syncUser, $_GET['company_id'] ?? null);
 
 try {
     // 1. Connect to both DBs
