@@ -34,7 +34,14 @@ class SttAgent
                 throw new RuntimeException($rejection);
             }
 
-            $result = OpenRouterClient::transcribeViaChatAudio($audioPath, null, 'th');
+            // Two different wire formats, picked by where transcription is pointed. The
+            // self-hosted Typhoon service speaks the standard OpenAI multipart contract; OpenRouter
+            // needs the audio base64'd inside a chat/completions body, because its own
+            // /audio/transcriptions only proxies OpenAI's audio models. Sending either shape to the
+            // other endpoint fails outright, so this is not a preference — it has to match.
+            $result = OpenRouterClient::sttIsSelfHosted()
+                ? OpenRouterClient::transcribeMultipart($audioPath, 'th')
+                : OpenRouterClient::transcribeViaChatAudio($audioPath, null, 'th');
         } finally {
             @unlink($audioPath); // don't keep decoded PCM around once STT has it
         }

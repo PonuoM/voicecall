@@ -120,6 +120,87 @@ class OpenRouterClient
     }
 
     /**
+     * True when transcription has been pointed somewhere other than OpenRouter.
+     *
+     * The two paths are not interchangeable. OpenRouter wants base64 audio inside a JSON body, at
+     * /chat/completions for the multimodal models; the OpenAI contract everyone else implements —
+     * including our own Typhoon service — wants a multipart file upload at /audio/transcriptions.
+     * Pointing STT_BASE_URL at the latter without switching request shapes just posts a JSON blob
+     * to an endpoint that does not exist.
+     */
+    public static function sttIsSelfHosted(): bool
+    {
+        $base = getenv('STT_BASE_URL');
+        return $base !== false && $base !== '';
+    }
+
+    /**
+     * Speech-to-text over the standard OpenAI multipart contract: POST /audio/transcriptions with
+     * the audio as a real file part. This is what asr-service/ speaks.
+     *
+     * Duration comes from the WAV header rather than the response, so the loop guard in SttAgent
+     * has a denominator even against a provider that reports no timing.
+     *
+     * @return array{text:string,duration:?float}
+     */
+    public static function transcribeMultipart(string $audioFilePath, ?string $language = 'th'): array
+    {
+        $endpoint = self::endpoint('STT', OPENROUTER_STT_MODEL);
+        if (!file_exists($audioFilePath)) {
+            throw new RuntimeException("Audio file not found: {$audioFilePath}");
+        }
+
+        $duration = self::wavDurationSeconds($audioFilePath);
+        // Same reasoning as the chat-audio path: a flat timeout either strangles long calls or lets
+        // a stuck one hang the pipeline. Typhoon runs about 5x realtime on the target box, so this
+        // leaves a wide margin without being unbounded.
+        $timeoutSeconds = $duration !== null
+            ? (int) max(180, min(1800, 120 + $duration * 2))
+            : 600;
+
+        $post = [
+            'file' => new CURLFile($audioFilePath, 'audio/wav', basename($audioFilePath)),
+            'model' => $endpoint['model'],
+        ];
+        if ($language) {
+            $post['language'] = $language;
+        }
+
+        $ch = curl_init($endpoint['url'] . '/audio/transcriptions');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $timeoutSeconds,
+            CURLOPT_CAINFO => __DIR__ . '/../certs/cacert.pem',
+            // No Content-Type header set by hand: curl has to generate the multipart boundary, and
+            // supplying the header ourselves would omit it and produce an unparseable body.
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $endpoint['key']],
+            CURLOPT_POSTFIELDS => $post,
+        ]);
+        $body = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false) {
+            throw new RuntimeException("{$endpoint['label']} transcription failed: {$curlError}");
+        }
+        $decoded = json_decode($body, true);
+        if ($httpCode >= 400) {
+            $message = $decoded['detail'] ?? ($decoded['error']['message'] ?? substr((string) $body, 0, 300));
+            throw new RuntimeException("{$endpoint['label']} transcription error ({$httpCode}): {$message}");
+        }
+        if (!is_array($decoded) || !array_key_exists('text', $decoded)) {
+            throw new RuntimeException("{$endpoint['label']} returned no transcript: " . substr((string) $body, 0, 300));
+        }
+
+        return [
+            'text' => trim((string) $decoded['text']),
+            'duration' => $duration ?? (isset($decoded['duration']) ? (float) $decoded['duration'] : null),
+        ];
+    }
+
+    /**
      * Speech-to-text via OpenRouter's /audio/transcriptions endpoint (base64 JSON body, not
      * multipart). Note: unlike calling OpenAI's Whisper API directly, OpenRouter's STT endpoint
      * returns only {text, usage} — no per-segment timestamps. usage.seconds gives call duration.
