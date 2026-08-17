@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Services/OpenRouterClient.php';
+require_once __DIR__ . '/../Services/ThaiNumerals.php';
 require_once __DIR__ . '/../Services/ErpLookupService.php';
 require_once __DIR__ . '/../Services/FraudCheckService.php';
 
@@ -118,10 +119,30 @@ PROMPT;
             $contextText = "EXTERNAL CONTEXT:\n{$externalContext}\n\n";
         }
 
-        $userPrompt = "{$contextText}{$rulesText}\nTRANSCRIPT:\n{$transcriptText}";
+        // Spoken digit runs are resolved before the model sees them. Typhoon writes numbers as
+        // words — "ส่วนเก้าสามสามหนึ่งห้าสามแปดสามศูนย์" for 0933153830 — and asking the model to read
+        // those back cost us the first real call through the new pipeline: it answered
+        // 093-315-8305, the right digits with two swapped. Reading ten words in order is a lookup,
+        // and a lookup should not be probabilistic. ErpLookupService matches customers to the ERP by
+        // phone number, so one transposed digit becomes a ghost number and an unlinked order.
+        //
+        // Only digit runs are touched; compositional numerals like "ห้าสิบ" or "สามพันเจ็ดร้อย" are
+        // left as written, because the model reads those correctly and rewriting them would risk
+        // real text for a problem that does not exist. The decoded sequences are also listed
+        // separately and marked authoritative, so there is no ambiguity about which wins.
+        $normalizedTranscript = ThaiNumerals::normalize($transcriptText);
+        $sequences = ThaiNumerals::extractSequences($transcriptText);
+
+        $numbersText = '';
+        if ($sequences) {
+            $numbersText = "NUMBER SEQUENCES (already decoded from spoken Thai — use these EXACT digits,"
+                . " do not re-derive them from the words):\n- " . implode("\n- ", $sequences) . "\n\n";
+        }
+
+        $userPrompt = "{$contextText}{$rulesText}\n{$numbersText}TRANSCRIPT:\n{$normalizedTranscript}";
         
         // 3. Call LLM
-        $result = OpenRouterClient::chatJson($systemPrompt, $userPrompt, OPENROUTER_COMPLIANCE_MODEL);
+        $result = OpenRouterClient::chatJson($systemPrompt, $userPrompt, OpenRouterClient::complianceModel());
         
         // 4. Save Summary
         $summary = $result['summary'] ?? [];
@@ -217,7 +238,7 @@ PROMPT;
         $overallStatus = count($violations) === 0 ? 'compliant' : ($hasHighOrCritical ? 'violations_found' : 'minor_issues');
 
         $stmtComp = $pdo->prepare('INSERT INTO compliance_reports (conversation_id, overall_status, violation_count, model_used) VALUES (?,?,?,?)');
-        $stmtComp->execute([$conversationId, $overallStatus, count($violations), OPENROUTER_COMPLIANCE_MODEL]);
+        $stmtComp->execute([$conversationId, $overallStatus, count($violations), OpenRouterClient::complianceModel()]);
         $reportId = (int) $pdo->lastInsertId();
 
         $ruleIdByName = [];

@@ -1,0 +1,11 @@
+# Torch first, and explicitly from the CPU index. The default PyPI wheel drags in the full CUDA
+# runtime — several GB of nvidia-* packages that will never be used on a KVM 2 with no GPU.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.8.0
+
+typhoon-asr==0.1.1
+fastapi==0.120.4
+uvicorn[standard]==0.42.0
+python-multipart==0.0.20
+librosa==1.0.0
+soundfile==0.14.0
