@@ -1,0 +1,28 @@
+services:
+  typhoon-asr:
+    build: .
+    image: typhoon-asr:local
+    container_name: typhoon-asr
+    restart: unless-stopped
+    environment:
+      # Required. Without it the middleware lets every request through, and this endpoint is CPU
+      # that anyone on the internet could spend. Generate with: openssl rand -hex 32
+      ASR_API_KEY: ${ASR_API_KEY:?set ASR_API_KEY in .env}
+      # Matches the KVM 2 plan. Measured 9.13x realtime at two threads — the model is small enough
+      # that more threads buy almost nothing.
+      ASR_THREADS: "2"
+    ports:
+      # Bound to loopback: reach it over an SSH tunnel, or put a TLS terminator in front. Published
+      # on 0.0.0.0 the API key would be travelling in clear text over the public internet.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Survives image rebuilds so the checkpoint is not re-downloaded each time.
+      - hf-cache:/opt/hf
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  hf-cache:
