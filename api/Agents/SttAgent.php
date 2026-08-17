@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Services/AudioFetcher.php';
+require_once __DIR__ . '/../Services/AudioQuality.php';
 require_once __DIR__ . '/../Services/OpenRouterClient.php';
 
 /**
@@ -24,13 +25,35 @@ class SttAgent
         $audioPath = AudioFetcher::fetchToPcmWav($conversationId, $conversation['source'], $conversation['audio_ref']);
 
         try {
+            // Gate 1, before anything is paid for. Roughly a third of these recordings carry no
+            // speech at all, and the model answers silence by inventing a conversation rather than
+            // returning nothing — so this has to run before the request, not after it.
+            $audio = AudioQuality::measure($audioPath);
+            $rejection = AudioQuality::rejectionReason($audio);
+            if ($rejection !== null) {
+                throw new RuntimeException($rejection);
+            }
+
             $result = OpenRouterClient::transcribeViaChatAudio($audioPath, OPENROUTER_STT_MODEL, 'th');
         } finally {
             @unlink($audioPath); // don't keep decoded PCM around once STT has it
         }
 
         $fullText = trim($result['text'] ?? '');
-        $duration = $result['duration'] ?? null;
+        // Duration measured from the decoded PCM, not whatever the STT response reported. It is the
+        // denominator of the loop check below, and the provider's value is frequently absent — 5 of
+        // 46 sampled conversations carry duration_seconds = 0, which would make any rate check
+        // divide by zero and pass everything through.
+        $duration = $audio['seconds'] > 0 ? $audio['seconds'] : ($result['duration'] ?? null);
+
+        // Gate 2, before the transcript is stored. A loop that reaches the database does not just
+        // sit there: the pipeline feeds it to the analysis agent, which bills for it a second time
+        // as input and then writes summaries, entities and fraud checks derived from text nobody
+        // ever said.
+        $loop = AudioQuality::loopReason($fullText, (float) $duration);
+        if ($loop !== null) {
+            throw new RuntimeException($loop);
+        }
 
         $stmt = $pdo->prepare('INSERT INTO transcripts (conversation_id, full_text, language, word_count) VALUES (?,?,?,?)');
         $stmt->execute([$conversationId, $fullText, null, str_word_count($fullText)]);
