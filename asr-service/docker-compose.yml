@@ -12,9 +12,14 @@ services:
       # that more threads buy almost nothing.
       ASR_THREADS: "2"
     ports:
-      # Bound to loopback: reach it over an SSH tunnel, or put a TLS terminator in front. Published
-      # on 0.0.0.0 the API key would be travelling in clear text over the public internet.
+      # Loopback only. The public route is Caddy on this same box, which already terminates TLS for
+      # meet./workjobs.prima49.com and can reach this container over the shared `edge` network —
+      # publishing 8000 on 0.0.0.0 would put the API key on the wire in clear text instead.
+      # Kept mapped so the service can still be exercised directly over SSH.
       - "127.0.0.1:8000:8000"
+    networks:
+      - default
+      - edge
     volumes:
       # Survives image rebuilds so the checkpoint is not re-downloaded each time.
       - hf-cache:/opt/hf
@@ -40,3 +45,10 @@ services:
 
 volumes:
   hf-cache:
+
+networks:
+  # Created and owned by the workspec stack, which is where Caddy lives. Declared external so this
+  # compose file joins it rather than trying to manage it — a `docker compose down` here must not
+  # be able to take the network out from under Rocket.Chat and Jitsi.
+  edge:
+    external: true
