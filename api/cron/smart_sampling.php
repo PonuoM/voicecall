@@ -60,16 +60,60 @@ function log_line(string $msg): void
     file_put_contents(LOG_DIR . '/smart_sampling.log', $line, FILE_APPEND);
 }
 
-// Budget check up front — skip all the selection work when today is already spent.
-$usage = OpenRouterClient::keyUsage();
-if ($usage['usage_daily'] >= SAMPLING_BUDGET_USD_PER_DAY) {
-    log_line(sprintf('budget reached: $%.4f / $%.2f today — nothing to do', $usage['usage_daily'], SAMPLING_BUDGET_USD_PER_DAY));
+/**
+ * What limits a run.
+ *
+ * The dollar cap was written when every transcription was billed per call and OpenRouter's
+ * usage_daily was the only number that mattered. Both halves of that have moved: transcription runs
+ * on hardware we already pay for, and analysis is a flat monthly subscription. Reading OpenRouter's
+ * daily spend now measures embeddings and nothing else — it would sit near zero forever and cap
+ * nothing, while making every run depend on an account whose balance is almost gone.
+ *
+ * When transcription is self-hosted the binding limits are volume, not money: MiniMax's rolling
+ * quota, the VPS sharing two cores with a chat and video stack, and Google Drive's abuse
+ * interstitial, which trips on bursts of downloads from one IP. A daily call ceiling covers all
+ * three, and pacing the runs covers the third on its own.
+ *
+ * @return array{blocked:bool,reason:string,used:float,cap:float,unit:string}
+ */
+function sampling_budget_state(PDO $pdo): array
+{
+    if (OpenRouterClient::sttIsSelfHosted()) {
+        $cap = (float) (getenv('SAMPLING_MAX_CALLS_PER_DAY') ?: 800);
+        $row = fetch_one($pdo, "
+            SELECT COUNT(*) AS n FROM audit_log
+            WHERE action = 'smart_sample' AND created_at >= CURDATE()
+        ", []);
+        $used = (float) ($row['n'] ?? 0);
+        return [
+            'blocked' => $used >= $cap,
+            'reason' => sprintf('%d / %d calls today', (int) $used, (int) $cap),
+            'used' => $used,
+            'cap' => $cap,
+            'unit' => 'calls',
+        ];
+    }
+
+    $usage = OpenRouterClient::keyUsage();
+    return [
+        'blocked' => $usage['usage_daily'] >= SAMPLING_BUDGET_USD_PER_DAY,
+        'reason' => sprintf('$%.4f / $%.2f today', $usage['usage_daily'], SAMPLING_BUDGET_USD_PER_DAY),
+        'used' => $usage['usage_daily'],
+        'cap' => SAMPLING_BUDGET_USD_PER_DAY,
+        'unit' => 'usd',
+    ];
+}
+
+// Checked up front so a run that is already at its ceiling does no selection work.
+$budget = sampling_budget_state($pdo);
+if ($budget['blocked']) {
+    log_line('limit reached: ' . $budget['reason'] . ' — nothing to do');
     exit(0);
 }
 
 $picked = SmartSamplingService::pickCandidates($pdo, $erp, $maxCalls);
-log_line(sprintf('picked %d candidates (budget: $%.4f / $%.2f used today)%s',
-    count($picked), $usage['usage_daily'], SAMPLING_BUDGET_USD_PER_DAY, $dryRun ? ' [DRY RUN]' : ''));
+log_line(sprintf('picked %d candidates (%s)%s',
+    count($picked), $budget['reason'], $dryRun ? ' [DRY RUN]' : ''));
 
 $processed = 0;
 $failed = 0;
@@ -84,10 +128,11 @@ foreach ($picked as $cand) {
         continue;
     }
 
-    // Re-check live spend before each paid call — this is what makes the cap hard.
-    $usage = OpenRouterClient::keyUsage();
-    if ($usage['usage_daily'] >= SAMPLING_BUDGET_USD_PER_DAY) {
-        log_line(sprintf('budget reached mid-run ($%.4f) — stopping after %d calls', $usage['usage_daily'], $processed));
+    // Re-checked before every call, not just at the top: several runs can overlap, and the point of
+    // the ceiling is that it holds across all of them rather than per-run.
+    $budget = sampling_budget_state($pdo);
+    if ($budget['blocked']) {
+        log_line(sprintf('limit reached mid-run (%s) — stopping after %d calls', $budget['reason'], $processed));
         break;
     }
 

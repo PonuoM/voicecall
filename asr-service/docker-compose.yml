@@ -31,12 +31,12 @@ services:
     # daily volume actually needs.
     cpus: 1.5
     cpu_shares: 256
-    # 2g was not enough: NeMo decodes a whole recording in one pass, and a 201-second call drove
-    # anon-rss to 2,089,828kB — the cgroup limit exactly — so the kernel killed uvicorn mid-request.
-    # The proper fix is to chunk long audio before handing it to the model, which also matches how
-    # this model was trained (its config caps training segments at 30s). Until that lands, the
-    # ceiling has to clear the whole-file peak.
-    mem_limit: 3500m
+    # Sized for the model plus one 30-second chunk, not for a whole call. Before chunking, memory
+    # tracked the length of the recording: a 201-second call died at a 2 GB limit and a 301-second
+    # call died at 3.5 GB, on a corpus that reaches 7,204 seconds. Now the peak is flat — 1.44 GB
+    # observed on the call that used to kill the container — so this ceiling holds for any length,
+    # and the gigabyte it gives back matters on a box also running MongoDB and Jitsi.
+    mem_limit: 2500m
     logging:
       driver: json-file
       options:
