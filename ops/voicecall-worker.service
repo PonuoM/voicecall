@@ -1,0 +1,11 @@
+[Unit]
+Description=Voicecall: sync Drive, sample calls, run the AI pipeline
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/voicecall/voicecall-worker.sh
+# ต่ำกว่างานอื่นบนเครื่อง งานนี้ไม่มีใครนั่งรอ แต่คนที่วิดีโอคอลรออยู่จริง
+Nice=10
+IOSchedulingClass=idle

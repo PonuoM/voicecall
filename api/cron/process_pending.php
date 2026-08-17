@@ -56,6 +56,23 @@ foreach ($rows as $row) {
         continue;
     }
 
+    // Claim the row before touching it. Selecting pending rows and processing them is safe only
+    // while exactly one run exists; the moment a scheduled cron overlaps a manual trigger, both see
+    // the same ids. That happened: conversation 95 was picked up twice, one run wrote its summary
+    // and the other hit "Duplicate entry '95' for key 'uq_summary_conv'" and marked the row failed —
+    // leaving a conversation with a complete transcript and analysis sitting in the failure list.
+    //
+    // The UPDATE is the lock: only one connection can move a row out of 'pending', and whoever
+    // loses sees zero affected rows and moves on. ConversationPipeline sets the same status itself,
+    // so nothing downstream changes.
+    $claim = $pdo->prepare("UPDATE conversations SET status = 'transcribing' WHERE id = ? AND status = 'pending'");
+    $claim->execute([$id]);
+    if ($claim->rowCount() === 0) {
+        echo "Conversation {$id} ({$row['call_code']}): already claimed by another run, skipping\n";
+        $skipped++;
+        continue;
+    }
+
     echo "Conversation {$id} ({$row['call_code']}): processing... ";
     $result = ConversationPipeline::run($pdo, $erp, $id);
     echo $result['ok'] ? "OK\n" : "FAILED: {$result['error']}\n";

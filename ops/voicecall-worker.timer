@@ -1,0 +1,13 @@
+[Unit]
+Description=รอบเดินงาน voicecall
+
+[Timer]
+# ทุก 20 นาที ที่ 3 สาย/รอบ = ~216 สาย/วัน ต่ำกว่าเพดาน 800 มาก
+OnBootSec=5min
+OnUnitActiveSec=20min
+# กันไม่ให้ทุกอย่างเริ่มพร้อมกันเป๊ะ ๆ หลัง reboot
+RandomizedDelaySec=90
+Persistent=true
+
+[Install]
+WantedBy=timers.target
