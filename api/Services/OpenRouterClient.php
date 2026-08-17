@@ -194,13 +194,53 @@ class OpenRouterClient
         return $vectors;
     }
 
+    /**
+     * Pull the JSON object out of a chat response.
+     *
+     * This used to assume the fence, if any, sat at the very start and end of the message, so it
+     * anchored on ^``` and ```$. That holds for gemini-2.5-flash and breaks on reasoning models:
+     * MiniMax M3 and M2.7 both open with a <think> block and only then emit ```json … ```, which
+     * left the anchors unmatched, the fence in the string, and every analysis failing to parse even
+     * though the model had answered correctly.
+     *
+     * Three passes, cheapest first: strip reasoning, take a fenced block from anywhere in the text,
+     * and failing that take the outermost braces. Note that json_decode() on the outermost-brace
+     * slice is what rejects a malformed candidate — the brace search itself cannot tell prose
+     * containing braces from real JSON.
+     */
     private static function extractJson(string $raw): ?array
     {
-        $trimmed = trim($raw);
-        $trimmed = preg_replace('/^```(?:json)?\s*/i', '', $trimmed);
-        $trimmed = preg_replace('/\s*```$/', '', $trimmed);
-        $decoded = json_decode($trimmed, true);
-        return is_array($decoded) ? $decoded : null;
+        $text = trim($raw);
+
+        // Reasoning traces. The closing tag is optional on purpose: a response truncated mid-thought
+        // has an opening tag and no close, and dropping everything up to the first fence or brace is
+        // still the right move.
+        $text = preg_replace('/<think>.*?<\/think>/is', '', $text);
+        $text = preg_replace('/^.*?<think>/is', '', $text);
+        $text = trim((string) $text);
+
+        $candidates = [$text];
+
+        // ```json … ``` anywhere in the message, not only wrapping the whole of it.
+        if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/is', $text, $fenced)) {
+            array_unshift($candidates, $fenced[1]);
+        }
+
+        // Outermost braces, for models that emit a short preamble and no fence at all.
+        $first = strpos($text, '{');
+        $last = strrpos($text, '}');
+        if ($first !== false && $last !== false && $last > $first) {
+            $candidates[] = substr($text, $first, $last - $first + 1);
+        }
+
+        foreach ($candidates as $candidate) {
+            $decoded = json_decode(trim($candidate), true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
     }
 
     /**
