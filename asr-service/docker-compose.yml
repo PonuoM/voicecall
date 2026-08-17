@@ -18,6 +18,20 @@ services:
     volumes:
       # Survives image rebuilds so the checkpoint is not re-downloaded each time.
       - hf-cache:/opt/hf
+    # The target box is not idle: it also runs Rocket.Chat, MongoDB, Caddy on 80/443 and a Jitsi
+    # stack, all on two cores. Transcription is batch work with nobody waiting on it, while a video
+    # call or a chat message is someone waiting right now — so this container is capped below the
+    # box and given the lowest CPU share, and loses every contest for the processor. Measured
+    # throughput was 9.13x realtime on two free cores; at 1.5 it stays far ahead of the ~1.2x the
+    # daily volume actually needs.
+    cpus: 1.5
+    cpu_shares: 256
+    # 2g was not enough: NeMo decodes a whole recording in one pass, and a 201-second call drove
+    # anon-rss to 2,089,828kB — the cgroup limit exactly — so the kernel killed uvicorn mid-request.
+    # The proper fix is to chunk long audio before handing it to the model, which also matches how
+    # this model was trained (its config caps training segments at 30s). Until that lands, the
+    # ceiling has to clear the whole-file peak.
+    mem_limit: 3500m
     logging:
       driver: json-file
       options:

@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
-FROM python:3.11-slim
+# 3.12, not 3.11: librosa 1.0.0 declares Requires-Python >=3.12, so a 3.11 base resolves to no
+# candidate at all and the build dies at pip install. The version is pinned to the one the model
+# comparison actually ran under, so this has to move rather than the pin.
+FROM python:3.12-slim
 
 # libsndfile is what soundfile binds to; ffmpeg is librosa's fallback decoder for anything that is
 # not a plain PCM WAV. Recordings reach this service already decoded, but the Drive corpus is mixed
