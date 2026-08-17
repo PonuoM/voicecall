@@ -34,7 +34,7 @@ class SttAgent
                 throw new RuntimeException($rejection);
             }
 
-            $result = OpenRouterClient::transcribeViaChatAudio($audioPath, OPENROUTER_STT_MODEL, 'th');
+            $result = OpenRouterClient::transcribeViaChatAudio($audioPath, null, 'th');
         } finally {
             @unlink($audioPath); // don't keep decoded PCM around once STT has it
         }
@@ -138,7 +138,7 @@ class SttAgent
             $resp = OpenRouterClient::chatJson(
                 'You are a precise conversation-analysis assistant. Output strict JSON only.',
                 $prompt,
-                OPENROUTER_COMPLIANCE_MODEL
+                OpenRouterClient::complianceModel()
             );
             $turns = $resp['turns'] ?? [];
         } catch (Throwable $e) {

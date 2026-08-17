@@ -46,6 +46,31 @@ class OpenRouterClient
         ];
     }
     /**
+     * The model to use for the calls that need more care than the default one — compliance
+     * judgements and the analysis pass, where flash-lite produced a real false positive.
+     *
+     * Callers used to name OPENROUTER_COMPLIANCE_MODEL directly. That silently became a bug the
+     * moment chat could point somewhere other than OpenRouter: the explicit argument wins over the
+     * endpoint's own model, so every analysis went to MiniMax asking for "google/gemini-2.5-flash"
+     * and came back "unknown model (2013)". Resolving it here keeps the choice of a stronger model
+     * expressed as a role rather than as a provider-specific string.
+     */
+    public static function complianceModel(): string
+    {
+        $explicit = getenv('LLM_COMPLIANCE_MODEL');
+        if ($explicit !== false && $explicit !== '') {
+            return $explicit;
+        }
+        // If the LLM endpoint has been pointed away from OpenRouter, its own model is the only one
+        // guaranteed to exist there — a "stronger" OpenRouter model id would just 400.
+        $llmModel = getenv('LLM_MODEL');
+        if ($llmModel !== false && $llmModel !== '') {
+            return $llmModel;
+        }
+        return OPENROUTER_COMPLIANCE_MODEL;
+    }
+
+    /**
      * @return string Raw text content of the model's reply.
      */
     public static function chat(string $systemPrompt, string $userPrompt, bool $jsonMode = false, ?string $model = null): string
@@ -136,7 +161,13 @@ class OpenRouterClient
      * file's own header instead.
      * @return array{text:string,duration:?float}
      */
-    public static function transcribeViaChatAudio(string $audioFilePath, string $model, ?string $language = null): array
+    /**
+     * $model is optional and normally should be left null: the STT endpoint already knows which
+     * model it serves. Passing a provider-specific id here is what broke the analysis path when
+     * chat moved to MiniMax, and the same trap exists on this side — once STT_BASE_URL points at
+     * the self-hosted Typhoon service, "google/gemini-2.5-flash" is not a model it has.
+     */
+    public static function transcribeViaChatAudio(string $audioFilePath, ?string $model = null, ?string $language = null): array
     {
         $endpoint = self::endpoint('STT', OPENROUTER_STT_MODEL);
         if (!file_exists($audioFilePath)) {
@@ -149,7 +180,7 @@ class OpenRouterClient
             . ' transcription text, no commentary, no speaker labels, no timestamps.';
 
         $payload = [
-            'model' => $model,
+            'model' => $model ?: $endpoint['model'],
             'messages' => [[
                 'role' => 'user',
                 'content' => [

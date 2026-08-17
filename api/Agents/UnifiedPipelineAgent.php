@@ -121,7 +121,7 @@ PROMPT;
         $userPrompt = "{$contextText}{$rulesText}\nTRANSCRIPT:\n{$transcriptText}";
         
         // 3. Call LLM
-        $result = OpenRouterClient::chatJson($systemPrompt, $userPrompt, OPENROUTER_COMPLIANCE_MODEL);
+        $result = OpenRouterClient::chatJson($systemPrompt, $userPrompt, OpenRouterClient::complianceModel());
         
         // 4. Save Summary
         $summary = $result['summary'] ?? [];
@@ -217,7 +217,7 @@ PROMPT;
         $overallStatus = count($violations) === 0 ? 'compliant' : ($hasHighOrCritical ? 'violations_found' : 'minor_issues');
 
         $stmtComp = $pdo->prepare('INSERT INTO compliance_reports (conversation_id, overall_status, violation_count, model_used) VALUES (?,?,?,?)');
-        $stmtComp->execute([$conversationId, $overallStatus, count($violations), OPENROUTER_COMPLIANCE_MODEL]);
+        $stmtComp->execute([$conversationId, $overallStatus, count($violations), OpenRouterClient::complianceModel()]);
         $reportId = (int) $pdo->lastInsertId();
 
         $ruleIdByName = [];
