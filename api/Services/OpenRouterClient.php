@@ -1,23 +1,59 @@
 <?php
 
 /**
- * Single client for every AI capability the pipeline needs: chat completions (all
- * text-reasoning agents), speech-to-text, and embeddings — OpenRouter now offers all three
- * under one API key, so there is no separate direct-OpenAI client.
+ * Client for every AI capability the pipeline needs: chat completions (all text-reasoning agents),
+ * speech-to-text, and embeddings.
+ *
+ * These used to share one base URL and one key, on the assumption that OpenRouter would serve all
+ * three forever. That assumption broke on both ends at once. Transcription is moving to a Typhoon
+ * ASR service we run ourselves, because no hosted model would stop inventing dialogue over silent
+ * recordings. Analysis is moving to MiniMax, because the subscription already covers it and the
+ * per-token bill did not. Embeddings have no reason to move — they cost almost nothing and the
+ * MiniMax equivalent speaks a different request shape.
+ *
+ * So each capability now resolves its own endpoint, and every one of them falls back to the
+ * OPENROUTER_* values when its own are unset. A deployment that configures nothing keeps behaving
+ * exactly as it does today, and the three can be migrated one at a time rather than in a single
+ * cutover.
  */
 class OpenRouterClient
 {
+    /**
+     * Endpoint for one capability: ['url' => ..., 'key' => ..., 'model' => ..., 'label' => ...].
+     *
+     * $prefix is LLM, STT or EMBEDDING. The label is carried through to error messages — with three
+     * possible providers behind one client, "API error (401)" is not worth much unless it says
+     * which one refused.
+     */
+    private static function endpoint(string $prefix, string $fallbackModel): array
+    {
+        $url = getenv($prefix . '_BASE_URL') ?: OPENROUTER_BASE_URL;
+        $key = getenv($prefix . '_API_KEY');
+        if ($key === false || $key === '') {
+            $key = OPENROUTER_API_KEY;
+        }
+        $model = getenv($prefix . '_MODEL') ?: $fallbackModel;
+
+        if (!$key) {
+            throw new RuntimeException("{$prefix}_API_KEY (or OPENROUTER_API_KEY) is not configured");
+        }
+
+        return [
+            'url' => rtrim($url, '/'),
+            'key' => $key,
+            'model' => $model,
+            'label' => parse_url($url, PHP_URL_HOST) ?: $prefix,
+        ];
+    }
     /**
      * @return string Raw text content of the model's reply.
      */
     public static function chat(string $systemPrompt, string $userPrompt, bool $jsonMode = false, ?string $model = null): string
     {
-        if (!OPENROUTER_API_KEY) {
-            throw new RuntimeException('OPENROUTER_API_KEY is not configured');
-        }
+        $endpoint = self::endpoint('LLM', OPENROUTER_MODEL);
 
         $payload = [
-            'model' => $model ?: OPENROUTER_MODEL,
+            'model' => $model ?: $endpoint['model'],
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt],
                 ['role' => 'user', 'content' => $userPrompt],
@@ -28,10 +64,10 @@ class OpenRouterClient
             $payload['response_format'] = ['type' => 'json_object'];
         }
 
-        $response = self::request('/chat/completions', $payload);
+        $response = self::request($endpoint, '/chat/completions', $payload);
         $content = $response['choices'][0]['message']['content'] ?? null;
         if ($content === null) {
-            throw new RuntimeException('OpenRouter response missing message content: ' . json_encode($response));
+            throw new RuntimeException("{$endpoint['label']} response missing message content: " . json_encode($response));
         }
         return $content;
     }
@@ -66,15 +102,13 @@ class OpenRouterClient
      */
     public static function transcribe(string $audioFilePath, ?string $language = null): array
     {
-        if (!OPENROUTER_API_KEY) {
-            throw new RuntimeException('OPENROUTER_API_KEY is not configured');
-        }
+        $endpoint = self::endpoint('STT', OPENROUTER_STT_MODEL);
         if (!file_exists($audioFilePath)) {
             throw new RuntimeException("Audio file not found: {$audioFilePath}");
         }
 
         $payload = [
-            'model' => OPENROUTER_STT_MODEL,
+            'model' => $endpoint['model'],
             'input_audio' => [
                 'data' => base64_encode(file_get_contents($audioFilePath)),
                 'format' => 'wav',
@@ -84,7 +118,7 @@ class OpenRouterClient
             $payload['language'] = $language;
         }
 
-        $response = self::request('/audio/transcriptions', $payload, 300);
+        $response = self::request($endpoint, '/audio/transcriptions', $payload, 300);
 
         return [
             'text' => $response['text'] ?? '',
@@ -104,9 +138,7 @@ class OpenRouterClient
      */
     public static function transcribeViaChatAudio(string $audioFilePath, string $model, ?string $language = null): array
     {
-        if (!OPENROUTER_API_KEY) {
-            throw new RuntimeException('OPENROUTER_API_KEY is not configured');
-        }
+        $endpoint = self::endpoint('STT', OPENROUTER_STT_MODEL);
         if (!file_exists($audioFilePath)) {
             throw new RuntimeException("Audio file not found: {$audioFilePath}");
         }
@@ -141,7 +173,7 @@ class OpenRouterClient
             ? (int) max(180, min(900, 120 + $duration * 1.5))
             : 300;
 
-        $response = self::request('/chat/completions', $payload, $timeoutSeconds);
+        $response = self::request($endpoint, '/chat/completions', $payload, $timeoutSeconds);
         $text = $response['choices'][0]['message']['content'] ?? '';
 
         return [
@@ -175,15 +207,18 @@ class OpenRouterClient
      */
     public static function embedBatch(array $texts): array
     {
-        if (!OPENROUTER_API_KEY) {
-            throw new RuntimeException('OPENROUTER_API_KEY is not configured');
-        }
         if (empty($texts)) {
             return [];
         }
 
-        $response = self::request('/embeddings', [
-            'model' => OPENROUTER_EMBEDDING_MODEL,
+        // Deliberately left on OpenRouter while chat moves to MiniMax. Embeddings are a rounding
+        // error on the bill, and MiniMax's embo-01 takes `texts`/`type` and returns `vectors`
+        // rather than OpenAI's `input`/`data[].embedding` — porting it would be new code with a new
+        // failure mode in exchange for nothing.
+        $endpoint = self::endpoint('EMBEDDING', OPENROUTER_EMBEDDING_MODEL);
+
+        $response = self::request($endpoint, '/embeddings', [
+            'model' => $endpoint['model'],
             'input' => $texts,
         ], 120);
 
@@ -272,6 +307,12 @@ class OpenRouterClient
         return ['total_credits' => $total, 'total_usage' => $used, 'remaining' => $total - $used];
     }
 
+    /**
+     * Pinned to OPENROUTER_* on purpose, unlike request(). Its only callers are keyUsage() and
+     * credits(), which read /key and /credits — OpenRouter account endpoints that exist nowhere
+     * else. Once chat moves to MiniMax the cost dashboard stops describing where the money goes;
+     * following LLM_BASE_URL here would turn that into a 404 instead, which is worse.
+     */
     private static function requestGet(string $path, int $timeoutSeconds = 30): array
     {
         $ch = curl_init(OPENROUTER_BASE_URL . $path);
@@ -297,9 +338,9 @@ class OpenRouterClient
         return is_array($decoded) ? $decoded : [];
     }
 
-    private static function request(string $path, array $payload, int $timeoutSeconds = 120): array
+    private static function request(array $endpoint, string $path, array $payload, int $timeoutSeconds = 120): array
     {
-        $ch = curl_init(OPENROUTER_BASE_URL . $path);
+        $ch = curl_init($endpoint['url'] . $path);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
@@ -307,7 +348,10 @@ class OpenRouterClient
             CURLOPT_CAINFO => __DIR__ . '/../certs/cacert.pem',
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
-                'Authorization: Bearer ' . OPENROUTER_API_KEY,
+                'Authorization: Bearer ' . $endpoint['key'],
+                // OpenRouter attribution headers. Harmless everywhere else — MiniMax and the local
+                // ASR service ignore unknown headers — so they stay unconditional rather than
+                // branching on which provider is being called.
                 'HTTP-Referer: https://www.prima49.com/voicecall',
                 'X-Title: Voicecall AI Voice Intelligence Platform',
             ],
@@ -319,13 +363,22 @@ class OpenRouterClient
         curl_close($ch);
 
         if ($body === false) {
-            throw new RuntimeException('OpenRouter request failed: ' . $curlError);
+            throw new RuntimeException("{$endpoint['label']} request failed: {$curlError}");
         }
         $decoded = json_decode($body, true);
         if ($httpCode >= 400) {
-            $message = $decoded['error']['message'] ?? $body;
-            throw new RuntimeException("OpenRouter API error ({$httpCode}): {$message}");
+            // MiniMax reports some failures as HTTP 200 with base_resp.status_code set, so the
+            // status line alone is not the whole story — see the check below.
+            $message = $decoded['error']['message'] ?? ($decoded['base_resp']['status_msg'] ?? $body);
+            throw new RuntimeException("{$endpoint['label']} API error ({$httpCode}): {$message}");
         }
+
+        $status = $decoded['base_resp']['status_code'] ?? 0;
+        if ($status !== 0) {
+            $message = $decoded['base_resp']['status_msg'] ?? 'unknown error';
+            throw new RuntimeException("{$endpoint['label']} API error (base_resp {$status}): {$message}");
+        }
+
         return is_array($decoded) ? $decoded : [];
     }
 }
