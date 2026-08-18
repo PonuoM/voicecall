@@ -84,9 +84,9 @@
                         <th class="num">ไฟล์เสียงทั้งหมด</th>
                         <th class="num">ถอด/วิเคราะห์แล้ว</th>
                         <th class="num">ข้ามตามกฎ</th>
-                        <th class="num">ล้มเหลว</th>
-                        <th class="num">รอคิว/กำลังทำ</th>
-                        <th class="num">ยังไม่แตะ</th>
+                        <th class="num" title="ส่วนใหญ่คือ Google Drive บล็อกการดาวน์โหลดชั่วคราว ไม่ใช่ไฟล์เสียงเสีย — ระบบจะดึงกลับมาลองใหม่เองในรอบถัดไป">ล้มเหลว</th>
+                        <th class="num">อยู่ในคิวแล้ว</th>
+                        <th class="num">ยังไม่เข้าคิว</th>
                         <th style="width:160px">ความคืบหน้า</th>
                     </tr>
                 </thead>
@@ -95,6 +95,10 @@
                 </tbody>
             </table>
         </div>
+        <p class="faint" style="font-size:11px;margin:10px 14px 4px">
+            "อยู่ในคิวแล้ว" + "ยังไม่เข้าคิว" รวมกันคือส่วนที่ยังไม่เสร็จ — สองคอลัมน์นี้ต่างกันแค่ว่า
+            เริ่มลงทะเบียนเข้าสู่ระบบแล้วหรือยัง (ผลรวมทั้ง 6 คอลัมน์ตัวเลขจะเท่ากับ "ไฟล์เสียงทั้งหมด" เสมอ)
+        </p>
     </div>
 
     <!-- Timing -->
@@ -153,27 +157,29 @@
 .heatmap-scroll { overflow-x: auto; padding-bottom: 4px; }
 .hm-grid {
     display: grid;
-    grid-template-columns: 44px repeat(31, 14px);
-    grid-auto-rows: 14px;
-    gap: 3px;
-    min-width: max-content;
+    grid-template-columns: 56px repeat(31, minmax(22px, 1fr));
+    grid-auto-rows: 28px;
+    gap: 5px;
+    width: 100%;
+    min-width: 900px;
 }
 .hm-monthlabel {
-    font-size: 10.5px;
+    font-size: 12.5px;
+    font-weight: 600;
     color: var(--ink-soft);
     display: flex;
     align-items: center;
     grid-column: 1;
 }
 .hm-daynum {
-    font-size: 9px;
+    font-size: 10.5px;
     color: var(--ink-faint);
     text-align: center;
 }
 .hm-cell {
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
+    width: 100%;
+    height: 100%;
+    border-radius: 5px;
     background: var(--hm-empty);
     cursor: default;
 }
