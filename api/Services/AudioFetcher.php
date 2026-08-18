@@ -86,6 +86,27 @@ class AudioFetcher
     }
 
     /**
+     * The circuit breaker above is damage control after the fact - this is the thing meant to stop
+     * the block from happening at all. abuse_interstitial tripped once at 45 downloads back to back
+     * with no gap between them; a small floor on the gap between any two downloads, shared across
+     * every caller (backlog drain, the pending worker, a manual "Analyze" click, audio_proxy.php
+     * playback) via one timestamp file, keeps the request rate low enough that a backlog-draining
+     * batch never looks like the burst that triggered it in the first place.
+     */
+    private const MIN_DOWNLOAD_INTERVAL_SECONDS = 2.5;
+
+    private static function throttleBeforeDownload(): void
+    {
+        $path = LOG_DIR . '/drive_last_download.txt';
+        $last = is_file($path) ? (float) file_get_contents($path) : 0.0;
+        $wait = self::MIN_DOWNLOAD_INTERVAL_SECONDS - (microtime(true) - $last);
+        if ($wait > 0) {
+            usleep((int) ($wait * 1000000));
+        }
+        file_put_contents($path, (string) microtime(true));
+    }
+
+    /**
      * Drive answers a throttle two different ways, and only one of them is JSON.
      *
      * Ordinary quota rejections come back as a JSON error body. Once abuse detection trips for the
@@ -109,6 +130,8 @@ class AudioFetcher
                 'Drive download skipped (abuse_interstitial circuit breaker open until ' . date('H:i:s', $blockedUntil) . ')'
             );
         }
+
+        self::throttleBeforeDownload();
 
         $url = "https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media&key=" . GDRIVE_API_KEY;
         $lastMessage = 'unknown error';
