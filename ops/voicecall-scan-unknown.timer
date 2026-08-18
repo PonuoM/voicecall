@@ -1,0 +1,11 @@
+[Unit]
+Description=รอบสแกนเบอร์นอกระบบ ทุก 6 ชั่วโมง
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

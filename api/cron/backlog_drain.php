@@ -29,6 +29,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../Services/SmartSamplingService.php';
 require_once __DIR__ . '/../Pipeline/ConversationPipeline.php';
+require_once __DIR__ . '/../Services/UnknownNumberService.php';
 
 set_time_limit(0);
 ini_set('memory_limit', '512M');
@@ -147,7 +148,38 @@ if (!$candidates) {
 $erp = erp_connect();  // erp() lives in core/bootstrap.php, which cron scripts do not load
 $counts = ['completed' => 0, 'skipped' => 0, 'failed' => 0];
 
+// A human decision, not a heuristic run fresh every batch — see UnknownNumberController and
+// ui/unknown_numbers.html. Loaded once per run, one query per company actually present in this
+// batch, not per candidate.
+$unknownSkipSets = [];
 foreach ($candidates as $cand) {
+    $companyId = (int) $cand['company_id'];
+    if (!isset($unknownSkipSets[$companyId])) {
+        $unknownSkipSets[$companyId] = UnknownNumberService::skipSet($pdo, $companyId);
+    }
+}
+
+foreach ($candidates as $cand) {
+    $companyId = (int) $cand['company_id'];
+    $skipSet = $unknownSkipSets[$companyId];
+    // Must go through UnknownNumberService::normalize(), not a hand-rolled digit-strip: Drive
+    // stores every number as +66XXXXXXXXXX, and a first attempt here that only stripped
+    // non-digits produced "66945554066" against a skipSet keyed "0945554066" -- never matching,
+    // for every single call, silently. This is the same normalizer that built the set.
+    $callerNormalized = UnknownNumberService::normalize((string) $cand['caller_phone']);
+    $callerKnownBad = $callerNormalized !== null && isset($skipSet[$callerNormalized]);
+    if ($callerKnownBad) {
+        // Same shape as the short-recording skip in Phase 1: registered directly as 'skipped', no
+        // Drive download, no Typhoon, no MiniMax — the queue was told this line is not our
+        // business and the point was to stop spending on it.
+        $conversationId = SmartSamplingService::registerCandidate($pdo, $erp, $cand + ['sample_reason' => 'backlog']);
+        $pdo->prepare("UPDATE conversations SET status = 'skipped', error_message = ? WHERE id = ? AND status = 'pending'")
+            ->execute(['เบอร์นี้ถูกทำเครื่องหมายว่าไม่ใช่ธุรกิจของบริษัท (ดูหน้า เบอร์นอกระบบ) — ข้ามตามการตัดสินใจของผู้ดูแล', $conversationId]);
+        $counts['skipped']++;
+        drain_log("skipped conv {$conversationId} (marked unknown-number skip): {$cand['caller_phone']}");
+        continue;
+    }
+
     $cand['sample_reason'] = 'backlog';
     $label = sprintf('%s %s %s %ds',
         $cand['call_code'] ?: $cand['gdrive_file_id'], $cand['call_date'],

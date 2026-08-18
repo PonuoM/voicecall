@@ -1,0 +1,8 @@
+[Unit]
+Description=Voicecall: scan for repeated calls to numbers absent from ERP
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/voicecall/scan-unknown-numbers.sh
+Nice=10

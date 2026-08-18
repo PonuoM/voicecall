@@ -39,6 +39,11 @@ try {
             handle_ghost_numbers($pdo, erp(), $currentUser, $id);
             break;
 
+        case 'unknown-numbers':
+            require_once __DIR__ . '/Controllers/UnknownNumberController.php';
+            handle_unknown_numbers($pdo, $currentUser, $id, $action);
+            break;
+
         case 'returned-orders':
             require_once __DIR__ . '/Controllers/ReturnedOrderController.php';
             handle_returned_orders($pdo, erp(), $currentUser, $id);
