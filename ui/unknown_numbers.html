@@ -103,21 +103,22 @@
     <div class="section-title">รายการเบอร์ <span class="n" id="listCount"></span></div>
     <div class="card pad0">
         <div class="table-scroll">
-            <table>
+            <table class="dense">
                 <thead>
                     <tr>
                         <th>เบอร์โทรออก</th>
                         <th class="num">จำนวนครั้ง</th>
                         <th class="num">เบอร์ปลายทางที่ต่างกัน</th>
                         <th class="num">รวมเวลา</th>
-                        <th>ช่วงวันที่พบ</th>
-                        <th>ตัวอย่างสาย</th>
-                        <th>สถานะ</th>
-                        <th class="ctr">การตัดสินใจ</th>
+                        <th>พบครั้งแรก</th>
+                        <th>พบล่าสุด</th>
+                        <th class="ctr">ตัวอย่างสาย</th>
+                        <th class="ctr">สถานะ</th>
+                        <th>การตัดสินใจ</th>
                     </tr>
                 </thead>
                 <tbody id="rowBody">
-                    <tr><td colspan="8" class="table-empty">กำลังโหลด...</td></tr>
+                    <tr><td colspan="9" class="table-empty">กำลังโหลด...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -242,7 +243,7 @@ async function loadAll() {
     if (!companyId) return;
 
     const errBox = document.getElementById('errorBox');
-    document.getElementById('rowBody').innerHTML = '<tr><td colspan="8" class="table-empty">กำลังโหลด...</td></tr>';
+    document.getElementById('rowBody').innerHTML = '<tr><td colspan="9" class="table-empty">กำลังโหลด...</td></tr>';
 
     try {
         // status=all ดึงมาครั้งเดียว ใช้คำนวณตัวเลขในทุกแท็บได้เลย โดยไม่ต้องยิงซ้ำเวลาสลับแท็บ
@@ -288,10 +289,6 @@ function renderTable() {
         const tr = document.createElement('tr');
         if (r.decision === 'pending') tr.className = 'flagged';
 
-        const sample = (r.sample || []).slice(0, 3)
-            .map(s => `${esc(s.date)} → ${fmtPhone(s.other_number)} (${Math.round((s.duration_seconds||0)/60)} น.)`)
-            .join('<br/>');
-
         let actionsHtml;
         if (r.decision === 'pending') {
             actionsHtml = `
@@ -312,23 +309,66 @@ function renderTable() {
                 </button>`;
         }
 
+        const sampleCount = (r.sample || []).length;
+
         tr.innerHTML = `
             <td><span class="mono-ish b">${fmtPhone(r.phone_number)}</span></td>
             <td class="num mono-ish" style="font-weight:600">${r.call_count}</td>
             <td class="num mono-ish">${r.distinct_destinations}</td>
             <td class="num mono-ish">${fmtDuration(r.total_seconds)}</td>
-            <td class="faint" style="font-size:11px;white-space:nowrap">${esc(r.first_seen)} — ${esc(r.last_seen)}</td>
-            <td style="font-size:11px;max-width:220px">${sample || '-'}</td>
-            <td><span class="${STATUS_CHIP[r.decision] || ''}">${STATUS_LABEL[r.decision] || r.decision}</span></td>
-            <td class="ctr" style="max-width:260px">${actionsHtml}</td>`;
+            <td class="faint mono-ish" style="font-size:11.5px;white-space:nowrap">${esc(r.first_seen)}</td>
+            <td class="faint mono-ish" style="font-size:11.5px;white-space:nowrap">${esc(r.last_seen)}</td>
+            <td class="ctr">
+                <button class="btn small" onclick="showSampleModal(${r.id})" ${sampleCount ? '' : 'disabled'}>
+                    <i data-lucide="list"></i> ดู (${sampleCount})
+                </button>
+            </td>
+            <td class="ctr"><span class="${STATUS_CHIP[r.decision] || ''}">${STATUS_LABEL[r.decision] || r.decision}</span></td>
+            <td style="max-width:260px">${actionsHtml}</td>`;
         tbody.appendChild(tr);
     });
 
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="table-empty">ไม่พบเบอร์ตามเงื่อนไขนี้</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="table-empty">ไม่พบเบอร์ตามเงื่อนไขนี้</td></tr>';
     }
     document.getElementById('listCount').textContent = `(${rows.length} รายการ)`;
     lucide.createIcons();
+}
+
+/**
+ * เดิมแสดงตัวอย่างสาย 3 รายการแทรกในเซลล์ตาราง ทำให้ความสูงแต่ละแถวไม่เท่ากันและอ่านลายตา
+ * ย้ายมาเป็น popup แทน — ตารางหลักจึงเหลือแค่ปุ่มเดียวต่อแถว ความสูงสม่ำเสมอ
+ */
+function showSampleModal(id) {
+    const r = allRows.find(x => x.id === id);
+    if (!r) return;
+    const sample = r.sample || [];
+
+    const rowsHtml = sample.length
+        ? sample.map(s => `
+            <tr>
+                <td style="padding:5px 8px;white-space:nowrap">${esc(s.date)}</td>
+                <td style="padding:5px 8px" class="mono-ish">${fmtPhone(s.other_number)}</td>
+                <td style="padding:5px 8px;text-align:right" class="mono-ish">${Math.round((s.duration_seconds || 0) / 60)} น.</td>
+            </tr>`).join('')
+        : `<tr><td colspan="3" style="padding:8px;text-align:center" class="faint">ไม่มีตัวอย่าง</td></tr>`;
+
+    const html = `
+        <p style="margin:0 0 8px;font-size:12px" class="faint">
+            เบอร์ ${fmtPhone(r.phone_number)} โทรออกทั้งหมด ${r.call_count} ครั้ง — แสดงตัวอย่าง ${sample.length} รายการล่าสุดที่เก็บไว้
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+            <thead>
+                <tr style="border-bottom:1px solid var(--line)">
+                    <th style="padding:5px 8px;text-align:left">วันที่</th>
+                    <th style="padding:5px 8px;text-align:left">โทรหา</th>
+                    <th style="padding:5px 8px;text-align:right">ระยะเวลา</th>
+                </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+        </table>`;
+
+    showAlertModal(`ตัวอย่างสายของ ${fmtPhone(r.phone_number)}`, html, 'info');
 }
 
 async function decide(id, decision) {
