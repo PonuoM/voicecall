@@ -69,6 +69,36 @@ class SttAgent
         $transcriptId = (int) $pdo->lastInsertId();
 
         $turns = self::inferSpeakerTurns($fullText, $conversation);
+        self::persistTurns($pdo, $conversationId, $transcriptId, $turns);
+
+        $pdo->prepare('UPDATE conversations SET duration_seconds = ? WHERE id = ?')
+            ->execute([$duration, $conversationId]);
+
+        return [
+            'transcript_id' => $transcriptId,
+            'full_text' => $fullText,
+            'turn_count' => count($turns),
+        ];
+    }
+
+    /**
+     * Re-splits an already-transcribed call without touching audio or the transcript text itself -
+     * for calls whose turn split degenerated to one block (the pre-chunking hang) even though the
+     * transcript underneath was always fine. Replaces transcript_segments/speakers for this
+     * conversation; leaves everything else (summaries, fraud checks, etc.) untouched.
+     */
+    public static function resplitExistingTranscript(PDO $pdo, array $conversation, int $transcriptId, string $fullText): array
+    {
+        $conversationId = (int) $conversation['id'];
+        $turns = self::inferSpeakerTurns($fullText, $conversation);
+        self::persistTurns($pdo, $conversationId, $transcriptId, $turns);
+        return ['transcript_id' => $transcriptId, 'turn_count' => count($turns)];
+    }
+
+    private static function persistTurns(PDO $pdo, int $conversationId, int $transcriptId, array $turns): void
+    {
+        $pdo->prepare('DELETE FROM transcript_segments WHERE conversation_id = ?')->execute([$conversationId]);
+        $pdo->prepare('DELETE FROM speakers WHERE conversation_id = ?')->execute([$conversationId]);
 
         $seq = 0;
         $rolesByLabel = [];
@@ -88,15 +118,6 @@ class SttAgent
         foreach ($rolesByLabel as $label => $role) {
             $insertSpeaker->execute([$conversationId, $label, $role]);
         }
-
-        $pdo->prepare('UPDATE conversations SET duration_seconds = ? WHERE id = ?')
-            ->execute([$duration, $conversationId]);
-
-        return [
-            'transcript_id' => $transcriptId,
-            'full_text' => $fullText,
-            'turn_count' => count($turns),
-        ];
     }
 
     /**

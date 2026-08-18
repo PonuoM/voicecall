@@ -22,8 +22,12 @@ class FraudCheckService
      */
     public static function run(PDO $pdo, PDO $erp, int $conversationId, int $companyId, array $paymentChannels, string $transcriptText): array
     {
-        // Idempotent: reprocessing a conversation replaces its previous findings.
-        $pdo->prepare('DELETE FROM fraud_checks WHERE conversation_id = ?')->execute([$conversationId]);
+        // Idempotent: reprocessing a conversation replaces its previous findings. Rows a human has
+        // already reviewed are left alone - review_status/reviewed_by/review_note live in this same
+        // row, so an unconditional delete here would silently discard a person's decision every time
+        // the conversation gets reprocessed, not just the model's own prior output.
+        $pdo->prepare("DELETE FROM fraud_checks WHERE conversation_id = ? AND check_type = 'payment_channel' AND review_status = 'pending'")
+            ->execute([$conversationId]);
 
         $conv = self::loadConversation($pdo, $conversationId);
         $companyAccounts = self::loadCompanyAccounts($erp, $companyId);
@@ -332,7 +336,8 @@ class FraudCheckService
      */
     public static function runOffChannel(PDO $pdo, int $conversationId, int $companyId, array $offChannelContacts): array
     {
-        $pdo->prepare("DELETE FROM fraud_checks WHERE conversation_id = ? AND check_type = 'off_channel_contact'")
+        // Same review-preservation rule as run(): only rows nobody has judged yet get replaced.
+        $pdo->prepare("DELETE FROM fraud_checks WHERE conversation_id = ? AND check_type = 'off_channel_contact' AND review_status = 'pending'")
             ->execute([$conversationId]);
 
         $insert = $pdo->prepare('
