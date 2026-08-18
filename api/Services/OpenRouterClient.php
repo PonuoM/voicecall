@@ -71,6 +71,18 @@ class OpenRouterClient
     }
 
     /**
+     * How long to wait on a chat completion.
+     *
+     * Deliberately one number rather than something scaled per request: unlike transcription, where
+     * cost tracks audio length, a reasoning model's thinking time is not predictable from the input.
+     * Overridable so a slower model does not need a code change.
+     */
+    private static function chatTimeoutSeconds(): int
+    {
+        return max(60, (int) (getenv('LLM_TIMEOUT_SECONDS') ?: 600));
+    }
+
+    /**
      * @return string Raw text content of the model's reply.
      */
     public static function chat(string $systemPrompt, string $userPrompt, bool $jsonMode = false, ?string $model = null): string
@@ -89,7 +101,12 @@ class OpenRouterClient
             $payload['response_format'] = ['type' => 'json_object'];
         }
 
-        $response = self::request($endpoint, '/chat/completions', $payload);
+        // 120 seconds — request()'s default — was written for gemini-2.5-flash-lite, which answers
+        // in a few seconds. MiniMax M3 reasons before it replies: the analysis call on a real
+        // transcript measured about 100 seconds, and eleven of the twenty-two production failures
+        // so far are this timeout rather than anything going wrong. The ceiling is now generous
+        // enough that hitting it means genuinely stuck, not merely thinking.
+        $response = self::request($endpoint, '/chat/completions', $payload, self::chatTimeoutSeconds());
         $content = $response['choices'][0]['message']['content'] ?? null;
         if ($content === null) {
             throw new RuntimeException("{$endpoint['label']} response missing message content: " . json_encode($response));

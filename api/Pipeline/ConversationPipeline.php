@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Agents/SttAgent.php';
+require_once __DIR__ . '/../Services/AudioSkipped.php';
 require_once __DIR__ . '/../Agents/UnifiedPipelineAgent.php';
 require_once __DIR__ . '/../Agents/KnowledgeIndexerAgent.php';
 
@@ -29,10 +30,19 @@ class ConversationPipeline
             $transcriptText = $transcript['full_text'];
 
             if (trim($transcriptText) === '') {
-                throw new RuntimeException('Transcription produced no text (silent or unsupported audio?)');
+                // Typhoon returning nothing is the correct answer for audio with no intelligible
+                // speech — it is a transducer and cannot invent one. That is a decision, not a
+                // breakage, so it must not land in the same bucket as a provider timeout.
+                throw new AudioSkipped('ถอดเสียงแล้วไม่มีคำพูด (เงียบ หรือเป็นเสียงรบกวน) — ข้ามตามกฎ');
             }
 
-            self::setStatus($pdo, $conversationId, 'analyzing_unified');
+            // 'analyzing', not 'analyzing_unified'. The latter is not in the status enum, and MySQL
+            // in non-strict mode answers an invalid enum value by storing the empty string — so
+            // every conversation passed through a status that existed nowhere in the schema. It was
+            // invisible while the pipeline kept moving, and left conversations 102 and 182 parked at
+            // '' when it did not: not 'pending', so nothing retried them, and not any state a person
+            // could look up.
+            self::setStatus($pdo, $conversationId, 'analyzing');
             $externalContext = json_decode($conversation['external_context'] ?? 'null', true);
             $contextString = $externalContext ? json_encode($externalContext, JSON_UNESCAPED_UNICODE) : null;
             
@@ -44,6 +54,13 @@ class ConversationPipeline
             self::setStatus($pdo, $conversationId, 'completed');
 
             return ['ok' => true, 'conversation_id' => $conversationId, 'status' => 'completed', 'transcript' => $transcript];
+        } catch (AudioSkipped $e) {
+            // A terminal state like any other: the recording has been dealt with and will not come
+            // back round. Logged at a lower volume than a failure because on this corpus roughly a
+            // third of recordings legitimately end here.
+            $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
+                ->execute(['skipped', $e->getMessage(), $conversationId]);
+            return ['ok' => true, 'conversation_id' => $conversationId, 'status' => 'skipped', 'reason' => $e->getMessage()];
         } catch (Throwable $e) {
             $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
                 ->execute(['failed', $e->getMessage(), $conversationId]);

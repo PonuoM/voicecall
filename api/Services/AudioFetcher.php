@@ -28,31 +28,80 @@ class AudioFetcher
         return $destPath;
     }
 
-    private static function downloadFromDrive(string $fileId): string
+    /**
+     * Drive answers a throttle two different ways, and only one of them is JSON.
+     *
+     * Ordinary quota rejections come back as a JSON error body. Once abuse detection trips for the
+     * whole IP — which took 45 downloads in quick succession while assembling a test corpus — the
+     * response is a plain HTML "Sorry..." page instead, and it outlasts any backoff measured in
+     * seconds. A permission failure looks nothing like either and must not be retried at all, since
+     * waiting will never grant access.
+     *
+     * Before this there was no retry of any kind: a single 403 ended the conversation as a failure,
+     * and the backlog drain will make far more Drive requests than the sampling worker ever did.
+     */
+    private static function downloadFromDrive(string $fileId, int $attempts = 4): string
     {
         if (!GDRIVE_API_KEY) {
             throw new RuntimeException('GDRIVE_API_KEY is not configured');
         }
         $url = "https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media&key=" . GDRIVE_API_KEY;
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_TIMEOUT => 60,
-        ]);
-        $data = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
+        $lastMessage = 'unknown error';
 
-        if ($data === false) {
-            throw new RuntimeException("Drive download failed: {$curlError}");
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_TIMEOUT => 180,
+            ]);
+            $data = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            if ($data !== false && $httpCode === 200 && strlen($data) >= 44) {
+                return $data;
+            }
+
+            if ($data === false) {
+                $lastMessage = "curl: {$curlError}";
+                $retryable = true;
+            } else {
+                $reason = self::driveErrorReason((string) $data);
+                $lastMessage = "HTTP {$httpCode}" . ($reason ? " ({$reason})" : '');
+                $retryable = in_array($httpCode, [429, 500, 502, 503, 504], true)
+                    || ($httpCode === 403 && $reason !== 'permission_denied');
+            }
+
+            if (!$retryable || $attempt === $attempts) {
+                break;
+            }
+            // Minutes, not seconds. The interstitial is an IP-level cooldown; retrying at 2s/4s/8s
+            // just re-arms it.
+            $backoff = [30, 90, 240][min($attempt - 1, 2)];
+            sleep($backoff);
         }
-        if ($httpCode !== 200 || strlen($data) < 44) {
-            throw new RuntimeException("Drive download failed (HTTP {$httpCode}) for fileId={$fileId}");
+
+        throw new RuntimeException("Drive download failed ({$lastMessage}) for fileId={$fileId}");
+    }
+
+    /**
+     * An unparseable body means the abuse interstitial rather than a permission problem — that page
+     * is HTML, so treating "not JSON" as "not retryable" would give up exactly when waiting works.
+     */
+    private static function driveErrorReason(string $body): string
+    {
+        $json = json_decode($body, true);
+        if (is_array($json)) {
+            $reason = $json['error']['errors'][0]['reason'] ?? ($json['error']['status'] ?? '');
+            if ($reason === '' || stripos($reason, 'Limit') !== false || stripos($reason, 'RESOURCE_EXHAUSTED') !== false) {
+                return 'rate_limited';
+            }
+            return 'permission_denied';
         }
-        return $data;
+        return stripos($body, 'sorry') !== false ? 'abuse_interstitial' : 'rate_limited';
     }
 
     // Matches index.html's loadLocalData()/downloadAudio(), which both prefix paths from

@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../Services/AudioFetcher.php';
 require_once __DIR__ . '/../Services/AudioQuality.php';
+require_once __DIR__ . '/../Services/AudioSkipped.php';
 require_once __DIR__ . '/../Services/OpenRouterClient.php';
 
 /**
@@ -31,7 +32,8 @@ class SttAgent
             $audio = AudioQuality::measure($audioPath);
             $rejection = AudioQuality::rejectionReason($audio);
             if ($rejection !== null) {
-                throw new RuntimeException($rejection);
+                // Declined, not broken — see AudioSkipped.
+                throw new AudioSkipped($rejection);
             }
 
             // Two different wire formats, picked by where transcription is pointed. The
@@ -59,7 +61,7 @@ class SttAgent
         // ever said.
         $loop = AudioQuality::loopReason($fullText, (float) $duration);
         if ($loop !== null) {
-            throw new RuntimeException($loop);
+            throw new AudioSkipped($loop);
         }
 
         $stmt = $pdo->prepare('INSERT INTO transcripts (conversation_id, full_text, language, word_count) VALUES (?,?,?,?)');
