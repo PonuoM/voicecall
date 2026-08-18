@@ -48,6 +48,21 @@ function handle_timeline(PDO $pdo, array $currentUser): void
     $countStmt->execute($params);
     $total = (int) $countStmt->fetchColumn();
 
+    // Today's tally, independent of the page/filter above - "how much got done today" is a
+    // different question from "show me this filtered page", and answering it from the already
+    // date-filtered/paginated query above would give a wrong number the moment either filter is set.
+    $todayStmt = $pdo->prepare("
+        SELECT status, COUNT(*) cnt FROM conversations
+        WHERE company_id = ? AND DATE(updated_at) = CURDATE() AND status IN ('completed','failed','skipped')
+        GROUP BY status
+    ");
+    $todayStmt->execute([$companyId]);
+    $todayCounts = ['completed' => 0, 'failed' => 0, 'skipped' => 0];
+    foreach ($todayStmt->fetchAll() as $row) {
+        $todayCounts[$row['status']] = (int) $row['cnt'];
+    }
+    $todayCounts['total'] = array_sum($todayCounts);
+
     $stmt = $pdo->prepare("
         SELECT c.id, c.call_code, c.status, c.error_message, c.updated_at, c.call_date, c.call_time,
                c.direction, c.duration_seconds, c.erp_employee_name, c.erp_customer_name,
@@ -61,5 +76,5 @@ function handle_timeline(PDO $pdo, array $currentUser): void
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
 
-    json_response(['ok' => true, 'data' => $rows, 'pagination' => ['page' => $page, 'per_page' => $perPage, 'total' => $total]]);
+    json_response(['ok' => true, 'data' => $rows, 'today' => $todayCounts, 'pagination' => ['page' => $page, 'per_page' => $perPage, 'total' => $total]]);
 }

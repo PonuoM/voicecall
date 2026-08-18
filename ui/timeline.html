@@ -71,6 +71,26 @@
 
 <main class="content">
 
+    <!-- Today at a glance -->
+    <div class="stats" id="todayCards">
+        <div class="stat">
+            <div class="l">วันนี้ทั้งหมด</div>
+            <div class="v num" id="cardToday"><span class="mini-spin"></span></div>
+        </div>
+        <div class="stat">
+            <div class="l">สำเร็จ</div>
+            <div class="v num" style="color:var(--ok)" id="cardTodayOk"><span class="mini-spin"></span></div>
+        </div>
+        <div class="stat">
+            <div class="l">ล้มเหลว</div>
+            <div class="v num" style="color:var(--crit)" id="cardTodayFail"><span class="mini-spin"></span></div>
+        </div>
+        <div class="stat">
+            <div class="l">ข้ามตามกฎ</div>
+            <div class="v num faint" id="cardTodaySkip"><span class="mini-spin"></span></div>
+        </div>
+    </div>
+
     <div class="filterbar">
         <div class="field">
             <label>สถานะ</label>
@@ -92,8 +112,26 @@
         <div class="spacer"></div>
     </div>
 
-    <div id="timelineList">
-        <div class="case-empty">กำลังโหลด...</div>
+    <div class="card pad0">
+        <div class="table-scroll">
+            <table class="dense">
+                <thead>
+                    <tr>
+                        <th>เวลาประมวลผลเสร็จ</th>
+                        <th>ห่างจากรายการก่อนหน้า</th>
+                        <th>รหัสสาย</th>
+                        <th>สถานะ</th>
+                        <th>พนักงาน</th>
+                        <th>ลูกค้า</th>
+                        <th class="num">ระยะเวลาสาย</th>
+                        <th>สรุป</th>
+                    </tr>
+                </thead>
+                <tbody id="timelineBody">
+                    <tr><td colspan="8" class="case-empty">กำลังโหลด...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div id="pager" style="display:flex;justify-content:center;gap:10px;align-items:center;margin-top:16px"></div>
@@ -101,6 +139,24 @@
 
 </div><!-- /.main -->
 </div><!-- /.shell -->
+
+<!-- Summary modal -->
+<div class="modal-overlay hidden" id="summaryModal" onclick="if (event.target === this) closeSummaryModal()">
+    <div class="modal-panel" style="max-width:640px">
+        <div class="modal-head">
+            <div>
+                <h2><i data-lucide="file-text"></i><span id="summaryModalTitle">สรุปสาย</span></h2>
+                <div class="sub" id="summaryModalSub"></div>
+            </div>
+            <button class="modal-close" onclick="closeSummaryModal()"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body" id="summaryModalBody"></div>
+        <div class="modal-foot">
+            <a id="summaryModalFullLink" href="#" target="_blank" class="btn small">ดูรายละเอียดเต็ม (บทสนทนา/ทุจริต/entities) →</a>
+            <button class="btn small primary" onclick="closeSummaryModal()">ปิด</button>
+        </div>
+    </div>
+</div>
 
 <script>
 (function () {
@@ -230,12 +286,10 @@ function fmtDuration(seconds) {
     return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-let expandedRow = null;
-
 async function loadTimeline(page) {
     currentPage = page || 1;
-    const list = document.getElementById('timelineList');
-    list.innerHTML = '<div class="case-empty">กำลังโหลด...</div>';
+    const body = document.getElementById('timelineBody');
+    body.innerHTML = '<tr><td colspan="8" class="case-empty">กำลังโหลด...</td></tr>';
 
     const params = new URLSearchParams({ page: currentPage, per_page: 50 });
     if (companyId) params.set('company_id', companyId);
@@ -252,101 +306,92 @@ async function loadTimeline(page) {
         if (!json.ok) throw new Error(json.message || 'โหลดข้อมูลไม่สำเร็จ');
         renderTimeline(json.data);
         renderPager(json.pagination);
+        renderTodayCards(json.today);
     } catch (e) {
         if (e.message === 'SESSION_EXPIRED') return;
-        list.innerHTML = `<div class="case-empty">โหลดไม่สำเร็จ: ${escapeHtml(e.message)}</div>`;
+        body.innerHTML = `<tr><td colspan="8" class="case-empty">โหลดไม่สำเร็จ: ${escapeHtml(e.message)}</td></tr>`;
     }
+}
+
+function renderTodayCards(today) {
+    if (!today) return;
+    document.getElementById('cardToday').textContent = today.total;
+    document.getElementById('cardTodayOk').textContent = today.completed;
+    document.getElementById('cardTodayFail').textContent = today.failed;
+    document.getElementById('cardTodaySkip').textContent = today.skipped;
 }
 
 function renderTimeline(rows) {
-    const list = document.getElementById('timelineList');
+    const body = document.getElementById('timelineBody');
     if (!rows.length) {
-        list.innerHTML = '<div class="case-empty">ไม่มีข้อมูลในช่วงที่เลือก</div>';
+        body.innerHTML = '<tr><td colspan="8" class="case-empty">ไม่มีข้อมูลในช่วงที่เลือก</td></tr>';
         return;
     }
 
-    let html = '<div class="timeline-track">';
+    // Stash full row data so the modal doesn't need a second fetch.
+    window.__timelineRows = {};
+    rows.forEach(r => window.__timelineRows[r.id] = r);
+
+    let html = '';
     rows.forEach((row, i) => {
         // Rows are newest-first: the gap for row i is the wait BEFORE it started, i.e. the time
         // between the previous (later) row finishing and this one finishing.
-        let gapHtml = '';
+        let gap = '-';
         if (i > 0) {
             const diff = new Date(rows[i - 1].updated_at.replace(' ', 'T')) - new Date(row.updated_at.replace(' ', 'T'));
-            if (diff > 0) {
-                gapHtml = `<div class="tl-gap"><i data-lucide="arrow-down"></i> ห่างจากรายการก่อนหน้า ${fmtGap(diff)}</div>`;
-            }
+            if (diff > 0) gap = fmtGap(diff);
         }
+        const hasSummary = !!(row.executive_summary || row.error_message);
 
-        const person = row.direction === 'OUT'
-            ? (row.erp_customer_name || 'ลูกค้าไม่ทราบชื่อ')
-            : (row.erp_customer_name || 'ลูกค้าไม่ทราบชื่อ');
-        const summary = (row.executive_summary || '').trim();
-        const summaryPreview = summary ? (summary.length > 140 ? summary.slice(0, 140) + '…' : summary) : (row.error_message || 'ไม่มีสรุป');
-
-        html += `<div class="tl-item">
-            ${gapHtml}
-            <div class="card pad0 tl-card" data-id="${row.id}">
-                <div class="tl-row" onclick="toggleExpand(${row.id})">
-                    <div class="tl-time">
-                        <div class="b">${fmtDateTime(row.updated_at)}</div>
-                        <div class="faint" style="font-size:11px">สายเมื่อ ${row.call_date || '-'} ${row.call_time || ''}</div>
-                    </div>
-                    <div class="tl-body">
-                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                            <span class="${STATUS_CHIP[row.status] || 'chip neutral'}">${STATUS_LABEL[row.status] || row.status}</span>
-                            <span class="b">${escapeHtml(row.call_code || ('#' + row.id))}</span>
-                            <span class="faint" style="font-size:12px">${escapeHtml(row.erp_employee_name || 'พนักงานไม่ทราบชื่อ')} → ${escapeHtml(person)}</span>
-                            <span class="faint" style="font-size:11px">${fmtDuration(row.duration_seconds)}</span>
-                        </div>
-                        <p class="faint" style="font-size:12px;margin:4px 0 0">${escapeHtml(summaryPreview)}</p>
-                    </div>
-                    <i data-lucide="chevron-down" class="tl-chevron"></i>
-                </div>
-                <div class="tl-detail hidden" id="tl-detail-${row.id}"></div>
-            </div>
-        </div>`;
+        html += `<tr>
+            <td class="mono-ish" style="font-size:12px">${fmtDateTime(row.updated_at)}</td>
+            <td class="faint" style="font-size:12px">${gap}</td>
+            <td class="b">${escapeHtml(row.call_code || ('#' + row.id))}</td>
+            <td><span class="${STATUS_CHIP[row.status] || 'chip neutral'}">${STATUS_LABEL[row.status] || row.status}</span></td>
+            <td style="font-size:12px">${escapeHtml(row.erp_employee_name || '-')}</td>
+            <td style="font-size:12px">${escapeHtml(row.erp_customer_name || '-')}</td>
+            <td class="num" style="font-size:12px">${fmtDuration(row.duration_seconds)}</td>
+            <td>${hasSummary
+                ? `<button class="btn small" onclick="openSummaryModal(${row.id})"><i data-lucide="file-text"></i> ดู</button>`
+                : '<span class="faint" style="font-size:11px">-</span>'}</td>
+        </tr>`;
     });
-    html += '</div>';
-    list.innerHTML = html;
+    body.innerHTML = html;
     lucide.createIcons();
-
-    // Stash full row data for expand-on-click without a second fetch.
-    window.__timelineRows = {};
-    rows.forEach(r => window.__timelineRows[r.id] = r);
 }
 
-function toggleExpand(id) {
-    const detail = document.getElementById(`tl-detail-${id}`);
-    const card = detail.closest('.tl-card');
-    if (!detail.classList.contains('hidden')) {
-        detail.classList.add('hidden');
-        card.classList.remove('open');
-        return;
-    }
-    // Collapse any other open row first - one summary open at a time keeps the log scannable.
-    if (expandedRow && expandedRow !== id) {
-        const prev = document.getElementById(`tl-detail-${expandedRow}`);
-        if (prev) { prev.classList.add('hidden'); prev.closest('.tl-card').classList.remove('open'); }
-    }
-    expandedRow = id;
-
+function openSummaryModal(id) {
     const row = window.__timelineRows[id];
+    if (!row) return;
+
+    document.getElementById('summaryModalTitle').textContent = row.call_code || ('#' + row.id);
+    document.getElementById('summaryModalSub').textContent =
+        `${row.erp_employee_name || 'พนักงานไม่ทราบชื่อ'} → ${row.erp_customer_name || 'ลูกค้าไม่ทราบชื่อ'} · ${fmtDateTime(row.updated_at)}`;
+    document.getElementById('summaryModalFullLink').href = '../index.html?search=' + encodeURIComponent(row.call_code || '');
+
     let topics = [];
     try { topics = row.key_topics ? JSON.parse(row.key_topics) : []; } catch (e) { topics = []; }
     const topicsHtml = Array.isArray(topics) && topics.length
-        ? `<div style="margin-top:8px">${topics.map(t => `<span class="chip neutral" style="margin:0 4px 4px 0">${escapeHtml(t)}</span>`).join('')}</div>`
+        ? `<div style="margin-top:10px">${topics.map(t => `<span class="chip neutral" style="margin:0 4px 4px 0">${escapeHtml(t)}</span>`).join('')}</div>`
         : '';
 
-    detail.innerHTML = `
-        <div style="padding:12px 16px;border-top:1px solid var(--line)">
-            ${row.executive_summary ? `<p style="font-size:13px;line-height:1.6;margin:0">${escapeHtml(row.executive_summary)}</p>` : `<p class="faint" style="font-size:13px">${escapeHtml(row.error_message || 'ไม่มีข้อมูลสรุปสำหรับสายนี้')}</p>`}
-            ${row.customer_sentiment ? `<div style="margin-top:8px"><span class="faint" style="font-size:11px">อารมณ์ลูกค้า: </span><span class="chip info">${escapeHtml(row.customer_sentiment)}</span></div>` : ''}
-            ${topicsHtml}
-            <a href="../index.html?search=${encodeURIComponent(row.call_code || '')}" target="_blank" class="btn small" style="margin-top:12px">ดูรายละเอียดเต็ม (บทสนทนา/ทุจริต/entities) →</a>
-        </div>`;
-    detail.classList.remove('hidden');
-    card.classList.add('open');
+    document.getElementById('summaryModalBody').innerHTML = `
+        ${row.executive_summary ? `<p style="font-size:13px;line-height:1.6;margin:0">${escapeHtml(row.executive_summary)}</p>` : `<p class="faint" style="font-size:13px">${escapeHtml(row.error_message || 'ไม่มีข้อมูลสรุปสำหรับสายนี้')}</p>`}
+        ${row.customer_sentiment ? `<div style="margin-top:10px"><span class="faint" style="font-size:11px">อารมณ์ลูกค้า: </span><span class="chip info">${escapeHtml(row.customer_sentiment)}</span></div>` : ''}
+        ${topicsHtml}
+    `;
+
+    document.getElementById('summaryModal').classList.remove('hidden');
+    lucide.createIcons();
 }
+
+function closeSummaryModal() {
+    document.getElementById('summaryModal').classList.add('hidden');
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSummaryModal();
+});
 
 function renderPager(pagination) {
     const pager = document.getElementById('pager');
@@ -362,26 +407,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (aiToken) loadTimeline();
 });
 </script>
-
-<style>
-.timeline-track { display: flex; flex-direction: column; }
-.tl-gap {
-    display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-faint);
-    padding: 6px 0 6px 24px; margin-left: 20px; border-left: 2px dashed var(--line);
-}
-.tl-gap i { width: 12px; height: 12px; }
-.tl-item { position: relative; }
-.tl-card { margin-bottom: 2px; }
-.tl-row {
-    display: flex; align-items: flex-start; gap: 16px; padding: 12px 16px; cursor: pointer;
-}
-.tl-row:hover { background: var(--sunken); }
-.tl-time { flex: 0 0 150px; }
-.tl-body { flex: 1; min-width: 0; }
-.tl-chevron { flex: 0 0 auto; width: 16px; height: 16px; color: var(--ink-faint); transition: transform 0.15s; margin-top: 2px; }
-.tl-card.open .tl-chevron { transform: rotate(180deg); }
-.hidden { display: none; }
-</style>
 
 </body>
 </html>
