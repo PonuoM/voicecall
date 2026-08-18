@@ -89,29 +89,14 @@
                 <option value="">กำลังโหลด...</option>
             </select>
         </div>
-        <div class="field">
-            <label>สถานะ</label>
-            <select id="statusFilter" onchange="loadAll()">
-                <option value="pending">รอตัดสินใจ</option>
-                <option value="skip">ข้ามแล้ว</option>
-                <option value="allow">ไม่ข้าม (วิเคราะห์ตามปกติ)</option>
-                <option value="all">ทั้งหมด</option>
-            </select>
-        </div>
-    </div>
-
-    <div class="stats">
-        <div class="stat">
-            <div class="l">รอตัดสินใจ</div>
-            <div class="v num" id="sPending"><span class="mini-spin"></span></div>
-        </div>
-        <div class="stat">
-            <div class="l">ข้ามแล้ว</div>
-            <div class="v num" id="sSkip"><span class="mini-spin"></span></div>
-        </div>
-        <div class="stat">
-            <div class="l">ไม่ข้าม (วิเคราะห์ตามปกติ)</div>
-            <div class="v num" id="sAllow"><span class="mini-spin"></span></div>
+        <div class="field grow">
+            <label>สถานะ — ดูได้ทุกกลุ่มพร้อมกัน สลับได้ตลอด</label>
+            <div id="statusTabs" style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn small primary" data-status="all" onclick="setStatusFilter('all')">ทั้งหมด <span id="tabAll">0</span></button>
+                <button type="button" class="btn small" data-status="pending" onclick="setStatusFilter('pending')">รอตัดสินใจ <span id="tabPending">0</span></button>
+                <button type="button" class="btn small" data-status="skip" onclick="setStatusFilter('skip')">ข้าม (ไม่วิเคราะห์) <span id="tabSkip">0</span></button>
+                <button type="button" class="btn small" data-status="allow" onclick="setStatusFilter('allow')">ไม่ข้าม (วิเคราะห์ตามปกติ) <span id="tabAllow">0</span></button>
+            </div>
         </div>
     </div>
 
@@ -147,8 +132,19 @@ const API_BASE = '../api/index.php';
 
 let aiToken = null;
 let currentUser = null;
-let lastRows = [];
+let allRows = [];  // ผลดิบจาก API (status=all) — renderTable() กรอง+จัดเรียงเองตามแท็บที่เลือก
 let sessionExpired = false;
+let currentStatus = 'all';
+
+function setStatusFilter(status) {
+    currentStatus = status;
+    document.querySelectorAll('#statusTabs button').forEach(b => {
+        b.classList.toggle('primary', b.dataset.status === status);
+    });
+    // สลับแท็บใช้ allRows ที่โหลดไว้แล้วมา render ใหม่ ไม่ยิง API ซ้ำ — โหลดจากเครือข่ายแค่ตอนเปิดหน้า
+    // และตอนกดปุ่มรีเฟรช
+    renderTable();
+}
 
 (function initSession() {
     const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
@@ -244,13 +240,13 @@ async function loadCompanies() {
 async function loadAll() {
     const companyId = document.getElementById('companyFilter').value;
     if (!companyId) return;
-    const status = document.getElementById('statusFilter').value;
 
     const errBox = document.getElementById('errorBox');
     document.getElementById('rowBody').innerHTML = '<tr><td colspan="8" class="table-empty">กำลังโหลด...</td></tr>';
 
     try {
-        const params = new URLSearchParams({ company_id: companyId, status });
+        // status=all ดึงมาครั้งเดียว ใช้คำนวณตัวเลขในทุกแท็บได้เลย โดยไม่ต้องยิงซ้ำเวลาสลับแท็บ
+        const params = new URLSearchParams({ company_id: companyId, status: 'all' });
         const res = await apiFetch(`${API_BASE}/unknown-numbers?${params}`);
         const data = await res.json();
         if (!data.ok) {
@@ -260,12 +256,14 @@ async function loadAll() {
             return;
         }
         errBox.classList.add('hidden');
-        lastRows = data.rows || [];
+        allRows = data.rows || [];
 
         const c = data.counts || {};
-        document.getElementById('sPending').textContent = Number(c.pending || 0).toLocaleString();
-        document.getElementById('sSkip').textContent = Number(c.skip || 0).toLocaleString();
-        document.getElementById('sAllow').textContent = Number(c.allow || 0).toLocaleString();
+        const pending = Number(c.pending || 0), skip = Number(c.skip || 0), allow = Number(c.allow || 0);
+        document.getElementById('tabAll').textContent = (pending + skip + allow).toLocaleString();
+        document.getElementById('tabPending').textContent = pending.toLocaleString();
+        document.getElementById('tabSkip').textContent = skip.toLocaleString();
+        document.getElementById('tabAllow').textContent = allow.toLocaleString();
 
         renderTable();
     } catch (e) {
@@ -275,11 +273,18 @@ async function loadAll() {
     }
 }
 
+// pending มาก่อนเสมอ เพราะเป็นสิ่งที่ต้องตัดสินใจ ที่เหลือเรียงตามจำนวนครั้งที่โทร
+const DECISION_ORDER = { pending: 0, skip: 1, allow: 2 };
+
 function renderTable() {
     const tbody = document.getElementById('rowBody');
     tbody.innerHTML = '';
 
-    lastRows.forEach(r => {
+    const rows = allRows
+        .filter(r => currentStatus === 'all' || r.decision === currentStatus)
+        .sort((a, b) => (DECISION_ORDER[a.decision] - DECISION_ORDER[b.decision]) || (b.call_count - a.call_count));
+
+    rows.forEach(r => {
         const tr = document.createElement('tr');
         if (r.decision === 'pending') tr.className = 'flagged';
 
@@ -315,10 +320,10 @@ function renderTable() {
         tbody.appendChild(tr);
     });
 
-    if (!lastRows.length) {
+    if (!rows.length) {
         tbody.innerHTML = '<tr><td colspan="8" class="table-empty">ไม่พบเบอร์ตามเงื่อนไขนี้</td></tr>';
     }
-    document.getElementById('listCount').textContent = `(${lastRows.length} รายการ)`;
+    document.getElementById('listCount').textContent = `(${rows.length} รายการ)`;
     lucide.createIcons();
 }
 
