@@ -298,10 +298,14 @@ function renderTable() {
                 <button class="btn small danger" onclick="decide(${r.id}, 'skip')"><i data-lucide="ban"></i> ข้าม</button>
                 <button class="btn small" onclick="decide(${r.id}, 'allow')"><i data-lucide="check"></i> ไม่ใช่ ให้วิเคราะห์</button>`;
         } else {
+            // ตัดข้อความยาวไม่ให้แถวสูงเกินจำเป็น — ดูเต็มได้ด้วยการเอาเมาส์ชี้ค้าง (title)
+            const truncate = (text, max) => text.length > max ? text.slice(0, max) + '…' : text;
+            const noteText = r.note ? truncate(r.note, 60) : '';
             actionsHtml = `
-                <div class="faint" style="font-size:11px;margin-bottom:4px">
-                    ${esc(r.decided_by_name || '')} · ${esc((r.decided_at || '').replace('T',' '))}
-                    ${r.note ? '<br/>หมายเหตุ: ' + esc(r.note) : ''}
+                <div class="faint" style="font-size:11px;margin-bottom:4px;max-width:220px">
+                    <span title="${esc(r.decided_by_name || '')}">${esc(truncate(r.decided_by_name || '', 28))}</span>
+                    · ${esc((r.decided_at || '').replace('T',' ').slice(0, 16))}
+                    ${noteText ? `<br/><span title="${esc(r.note)}">หมายเหตุ: ${esc(noteText)}</span>` : ''}
                 </div>
                 <button class="btn small" onclick="decide(${r.id}, '${r.decision === 'skip' ? 'allow' : 'skip'}')">
                     เปลี่ยนเป็น "${r.decision === 'skip' ? 'ไม่ข้าม' : 'ข้าม'}"
@@ -314,9 +318,9 @@ function renderTable() {
             <td class="num mono-ish">${r.distinct_destinations}</td>
             <td class="num mono-ish">${fmtDuration(r.total_seconds)}</td>
             <td class="faint" style="font-size:11px;white-space:nowrap">${esc(r.first_seen)} — ${esc(r.last_seen)}</td>
-            <td style="font-size:11px">${sample || '-'}</td>
+            <td style="font-size:11px;max-width:220px">${sample || '-'}</td>
             <td><span class="${STATUS_CHIP[r.decision] || ''}">${STATUS_LABEL[r.decision] || r.decision}</span></td>
-            <td class="ctr">${actionsHtml}</td>`;
+            <td class="ctr" style="max-width:260px">${actionsHtml}</td>`;
         tbody.appendChild(tr);
     });
 
