@@ -34,10 +34,14 @@ run() {
 #
 # smart_sampling ไม่ได้เรียกแล้ว: มันสุ่มจากกรอบ 7 วัน ซึ่งทิ้งของเก่าถาวร
 # backlog_drain ครอบคลุมงานเดียวกันและจบได้จริง
+# process_pending / backlog_drain now stop claiming new work once their own internal
+# RUN_TIME_BUDGET_SECONDS (1200s) is spent, so 1800s here is margin for whatever single call was
+# already in flight when that budget ran out, not the normal case - a run that behaves should
+# return well under this.
 run sync_gdrive_index 900
 run reap_stale          120
-run process_pending    1500
-run backlog_drain      1500
+run process_pending    1800
+run backlog_drain      1800
 
 # ตัด log ไม่ให้โตไม่จำกัด
 tail -n 2000 "$LOG" > "${LOG}.tmp" && mv "${LOG}.tmp" "$LOG"

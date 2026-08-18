@@ -30,6 +30,13 @@ const MIN_DURATION_SECONDS = 10;
 const GSM_BYTES_PER_SECOND = 1625;
 const MIN_SIZE_BYTES = 60 + MIN_DURATION_SECONDS * GSM_BYTES_PER_SECOND;
 
+// Same reasoning as backlog_drain.php's RUN_TIME_BUDGET_SECONDS: the HTTP caller gives up after a
+// fixed timeout, and a $limit on row count does not bound wall-clock time when a handful of rows
+// in the batch each need several minutes of MiniMax turn-splitting. Stop claiming new rows once
+// the budget is spent so the run always returns cleanly instead of getting cut off mid-batch.
+const RUN_TIME_BUDGET_SECONDS = 1200;
+$runStartedAt = microtime(true);
+
 $limit = isset($argv[1]) ? max(1, (int) $argv[1]) : 20;
 
 $pdo = db_connect();
@@ -47,6 +54,11 @@ if (empty($rows)) {
 $processed = 0;
 $skipped = 0;
 foreach ($rows as $row) {
+    if ((microtime(true) - $runStartedAt) >= RUN_TIME_BUDGET_SECONDS) {
+        echo "Time budget reached — stopping this run early, next cycle continues from here.\n";
+        break;
+    }
+
     $id = (int) $row['id'];
     $size = $row['size_bytes'] !== null ? (int) $row['size_bytes'] : null;
 

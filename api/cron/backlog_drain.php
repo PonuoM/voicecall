@@ -47,6 +47,21 @@ $statusOnly = in_array('--status', $argv ?? [], true) || isset($_GET['status']);
 $limit = (int) ($argv[1] ?? $_GET['limit'] ?? getenv('BACKLOG_CALLS_PER_RUN') ?: 10);
 $limit = max(1, min(200, $limit));
 
+// The scheduler that fires this over HTTP (ops/voicecall-worker.sh) gives up waiting after 1500s.
+// A $limit of 10 does not bound wall-clock time - MiniMax's turn-split call alone can run past ten
+// minutes on a long transcript, so a batch of a few such calls blew straight through that ceiling
+// every single cycle, every candidate it had already claimed left stuck mid-pipeline for
+// reap_stale to eventually notice. Stopping well inside the caller's timeout, instead of trying to
+// guess a $limit small enough to always fit, means a run always finishes cleanly and reports what
+// it did - the next cycle picks up exactly where this one left off.
+const RUN_TIME_BUDGET_SECONDS = 1200;
+$runStartedAt = microtime(true);
+function backlog_time_left(): float
+{
+    global $runStartedAt;
+    return RUN_TIME_BUDGET_SECONDS - (microtime(true) - $runStartedAt);
+}
+
 // Short recordings are disposed of far faster than long ones — no download, no model — so a run can
 // clear a lot of them without holding the pipeline up.
 $shortBatch = (int) (getenv('BACKLOG_SHORT_BATCH') ?: 2000);
@@ -160,6 +175,11 @@ foreach ($candidates as $cand) {
 }
 
 foreach ($candidates as $cand) {
+    if (backlog_time_left() <= 0) {
+        drain_log('time budget reached — stopping this run early, next cycle continues from here');
+        break;
+    }
+
     $companyId = (int) $cand['company_id'];
     $skipSet = $unknownSkipSets[$companyId];
     // Must go through UnknownNumberService::normalize(), not a hand-rolled digit-strip: Drive
