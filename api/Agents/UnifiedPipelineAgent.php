@@ -86,7 +86,41 @@ phone number ONLY when it is referenced as a PromptPay/payment destination — n
 exchanged merely for calling back. Do NOT decide whether a channel is fraudulent; report
 every mention neutrally (verification happens outside the model). If none, return
 {"payment_channels": []}.
+
+Do NOT include a number or ID as a payment channel when the surrounding context is any of:
+(a) a product/formula/SKU code -- this business sells fertilizer identified by numeric ratios
+    (e.g. "สูตร 6-3-3", "12-4-4"); a number introduced as "สูตร" (formula), a product ratio, or a
+    batch/lot code is a product identifier, never a payment destination, even if it is a bank-account-
+    length digit string;
+(b) an automated system message -- carrier voicemail greetings, IVR prompts, and "the number you
+    dialed is unavailable / please leave a message" scripts read a phone number back mechanically;
+    this is not a human providing a payment channel;
+(c) a callback number -- "จดเบอร์ผมไว้", "โทรกลับได้ที่", or similar, where the number is offered so
+    the OTHER party can call back, not so money can be sent to it.
+Only capture a channel when there is an explicit payment-purpose anchor: "โอนมาที่", "พร้อมเพย์เบอร์",
+"ส่งสลิปมาที่", "บัญชีชื่อ", or equivalent. If the purpose is ambiguous, leave it out rather than guess
+-- a missed channel costs nothing; a wrong one wastes a reviewer's time chasing a fertilizer formula.
 PROMPT;
+
+    /**
+     * required_phrases / prohibited_words are stored as a JSON array string, or NULL. Decodes
+     * defensively -- a malformed or empty value should silently contribute nothing to the prompt,
+     * not throw mid-pipeline over a data-entry mistake in a rule someone typed by hand.
+     * @return string[]
+     */
+    private static function decodeWordList(?string $json): array
+    {
+        if ($json === null || trim($json) === '') {
+            return [];
+        }
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return array_values(array_filter(array_map('strval', $decoded), function ($w) {
+            return trim($w) !== '';
+        }));
+    }
 
     public static function run(PDO $pdo, PDO $erp, int $conversationId, int $companyId, string $transcriptText, ?string $externalContext = null): array
     {
@@ -101,17 +135,44 @@ PROMPT;
         }
         
         // 2. Get Compliance Rules
-        $rulesStmt = $pdo->prepare('SELECT id, rule_name, description FROM compliance_rules WHERE company_id = ? AND active = 1');
+        //
+        // required_phrases / prohibited_words are stored per rule but, until now, never left this
+        // function -- only rule_name and description reached the model. For "Company identification
+        // at call start" that meant the model was judging compliance from "must identify the company
+        // name" alone, with no idea WHICH names count, so a legitimate sub-brand greeting ("ปุ๋ยน้ำธาตุ
+        // โมโน") could read as a miss even though it is one of the company's own product lines. The
+        // configured anchors exist specifically to prevent that guesswork and were sitting unused.
+        $rulesStmt = $pdo->prepare('SELECT id, rule_name, description, rule_type, required_phrases, prohibited_words FROM compliance_rules WHERE company_id = ? AND active = 1');
         $rulesStmt->execute([$companyId]);
         $rules = $rulesStmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         $rulesText = "BUSINESS RULES:\n";
         if (empty($rules)) {
             $rulesText .= "None\n";
         } else {
             foreach ($rules as $r) {
                 $rulesText .= "- {$r['rule_name']}: {$r['description']}\n";
+                $required = self::decodeWordList($r['required_phrases']);
+                if ($required) {
+                    $rulesText .= "  ACCEPTED as satisfying this rule (any ONE of these counts, exact wording not required):"
+                        . " " . implode(', ', $required) . "\n";
+                }
+                $prohibited = self::decodeWordList($r['prohibited_words']);
+                if ($prohibited) {
+                    $rulesText .= "  PROHIBITED phrases for this rule (flag if the agent says anything with this"
+                        . " meaning, not only these exact words): " . implode(', ', $prohibited) . "\n";
+                }
             }
+            // Recordings here sometimes start mid-call rather than at the actual ring -- a transcript
+            // whose first turn already reads like an answer or a name confirmation, not a greeting,
+            // gives no evidence either way about what was said before the recording began. Judging a
+            // "call start" rule against audio that never captured the start produces exactly the kind
+            // of violation nothing could have prevented.
+            $rulesText .= "\nFor any rule about the OPENING of the call (e.g. company identification, "
+                . "required opening greeting): if the transcript's first turn already sounds like it is "
+                . "continuing a conversation already in progress (e.g. answering a question, confirming "
+                . "a name, no greeting at all), do NOT flag a violation for that rule -- the recording "
+                . "likely missed the true start, so there is no evidence the agent skipped it.\n";
         }
         
         $contextText = "";
