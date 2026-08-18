@@ -19,9 +19,9 @@ try {
             handle_fraud($pdo, $currentUser, $id, $action);
             break;
 
-        case 'cost':
-            require_once __DIR__ . '/Controllers/CostController.php';
-            handle_cost($pdo, $currentUser, $id, $action);
+        case 'report':
+            require_once __DIR__ . '/Controllers/ReportController.php';
+            handle_report($pdo, erp(), $currentUser, $id);
             break;
 
         case 'long-calls':

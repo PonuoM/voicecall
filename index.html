@@ -95,7 +95,7 @@
     </nav>
     <div class="rail-group-label">ระบบ</div>
     <nav>
-        <a id="btnCost" href="./ui/cost_dashboard.html" class="rail-item hidden"><i data-lucide="wallet"></i><span class="lbl">Cost</span></a>
+        <a id="btnReport" href="./ui/cost_dashboard.html" class="rail-item hidden"><i data-lucide="bar-chart-3"></i><span class="lbl">รายงาน</span></a>
         <a id="btnCompanySettings" href="./ui/super_admin_companies.html" class="rail-item hidden"><i data-lucide="settings"></i><span class="lbl">จัดการบริษัท</span></a>
         <a id="btnAIPrompts" href="./ui/super_admin_prompts.html" class="rail-item hidden"><i data-lucide="bot"></i><span class="lbl">ตั้งค่า AI</span></a>
     </nav>
@@ -502,11 +502,13 @@ function showDashboard() {
             btnPrompts.classList.remove('hidden');
             btnPrompts.classList.add('flex');
         }
-        const btnCost = document.getElementById('btnCost');
-        if (btnCost) {
-            btnCost.classList.remove('hidden');
-            btnCost.classList.add('flex');
-        }
+    }
+    // Coverage/progress report is scoped to the viewer's own company server-side, so unlike the
+    // settings above it is useful (and safe) for every signed-in user, not just super admins.
+    const btnReport = document.getElementById('btnReport');
+    if (btnReport) {
+        btnReport.classList.remove('hidden');
+        btnReport.classList.add('flex');
     }
 
     lucide.createIcons();

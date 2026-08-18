@@ -3,12 +3,10 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Cost Dashboard - ค่าใช้จ่าย AI</title>
+    <title>รายงานความคืบหน้า - AI Voice</title>
     <link rel="stylesheet" href="assets/theme.css?v=11" />
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
-        // Pre-paint theme: apply saved theme before first render, so navigating between pages
-        // doesn't flash light before switching to the saved dark (or vice versa).
         try {
             var t = localStorage.getItem('vc-theme');
             if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
@@ -39,7 +37,7 @@
     </nav>
     <div class="rail-group-label">ระบบ</div>
     <nav>
-        <a href="cost_dashboard.html" class="rail-item active"><i data-lucide="wallet"></i><span class="lbl">Cost</span></a>
+        <a href="cost_dashboard.html" class="rail-item active"><i data-lucide="bar-chart-3"></i><span class="lbl">รายงาน</span></a>
         <a href="super_admin_companies.html" class="rail-item"><i data-lucide="settings"></i><span class="lbl">จัดการบริษัท</span></a>
         <a href="super_admin_prompts.html" class="rail-item"><i data-lucide="bot"></i><span class="lbl">ตั้งค่า AI</span></a>
     </nav>
@@ -63,7 +61,7 @@
 
 <header class="topbar">
     <div>
-        <h1>Cost Dashboard — ค่าใช้จ่าย AI (OpenRouter)</h1>
+        <h1>รายงานความคืบหน้าการประมวลผล</h1>
         <div class="path" id="lastUpdated">โหลดข้อมูล...</div>
     </div>
     <div class="actions">
@@ -75,93 +73,132 @@
 
     <div id="errorBox" class="errbox hidden"></div>
 
-    <!-- Live spend -->
-    <div class="section-title">การใช้จ่ายจริง (สดจาก OpenRouter)</div>
-    <div class="stats">
-        <div class="stat">
-            <div class="l">วันนี้</div>
-            <div class="v num" id="usageDaily"><span class="mini-spin"></span></div>
-            <div class="faint num" id="usageDailyThb" style="font-size:11px"></div>
-        </div>
-        <div class="stat">
-            <div class="l">เดือนนี้</div>
-            <div class="v num" id="usageMonthly"><span class="mini-spin"></span></div>
-            <div class="faint num" id="usageMonthlyThb" style="font-size:11px"></div>
-        </div>
-        <div class="stat">
-            <div class="l">ใช้ไปทั้งหมด (key นี้)</div>
-            <div class="v num" id="usageTotal"><span class="mini-spin"></span></div>
-            <div class="faint num" id="usageTotalThb" style="font-size:11px"></div>
-        </div>
-        <div class="stat">
-            <div class="l">เครดิตคงเหลือ (ทั้งบัญชี)</div>
-            <div class="v num" id="creditsRemaining"><span class="mini-spin"></span></div>
-            <div class="faint num" id="creditsDetail" style="font-size:11px"></div>
-        </div>
-    </div>
-
-    <!-- Budget / sampling -->
-    <div class="section-title">Smart Sampling &amp; Budget</div>
-    <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
-            <span>งบวันนี้: <b id="budgetLabel" class="num"><span class="mini-spin"></span></b></span>
-            <span id="budgetPct" class="chip ok num"><span class="mini-spin"></span></span>
-        </div>
-        <div class="budget-bar"><div id="budgetBar" style="width:0%"></div></div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px;font-size:11.5px">
-            <div><span class="dim">สายที่สุ่มตรวจวันนี้</span><br><b class="mono-ish" id="sampledToday"><span class="mini-spin"></span></b></div>
-            <div><span class="dim">เพดานต่อรอบ cron</span><br><b class="mono-ish" id="maxPerRun"><span class="mini-spin"></span></b></div>
-            <div><span class="dim">ความยาวขั้นต่ำ</span><br><b class="mono-ish" id="minDuration"><span class="mini-spin"></span></b></div>
-            <div><span class="dim">สัดส่วนสุ่มล้วน</span><br><b class="mono-ish" id="randomShare"><span class="mini-spin"></span></b></div>
+    <!-- Per-company coverage table -->
+    <div class="section-title">ความคืบหน้าแยกตามบริษัท</div>
+    <div class="card pad0" style="margin-bottom:20px">
+        <div class="table-scroll">
+            <table class="dense">
+                <thead>
+                    <tr>
+                        <th>บริษัท</th>
+                        <th class="num">ไฟล์เสียงทั้งหมด</th>
+                        <th class="num">ถอด/วิเคราะห์แล้ว</th>
+                        <th class="num">ข้ามตามกฎ</th>
+                        <th class="num">ล้มเหลว</th>
+                        <th class="num">รอคิว/กำลังทำ</th>
+                        <th class="num">ยังไม่แตะ</th>
+                        <th style="width:160px">ความคืบหน้า</th>
+                    </tr>
+                </thead>
+                <tbody id="companyBody">
+                    <tr><td colspan="8" class="table-empty">กำลังโหลด...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 
-    <!-- Per-call economics -->
-    <div class="section-title">ต้นทุนต่อสาย &amp; ปริมาณ</div>
-    <div class="stats">
+    <!-- Timing -->
+    <div class="section-title">เวลาที่ใช้ในการประมวลผล</div>
+    <div class="stats" style="margin-bottom:20px">
         <div class="stat">
-            <div class="l">ต้นทุนเฉลี่ย/สาย*</div>
-            <div class="v num" id="avgCost"><span class="mini-spin"></span></div>
-            <div class="faint num" id="avgCostThb" style="font-size:11px"></div>
+            <div class="l">วิเคราะห์สำเร็จแล้ว</div>
+            <div class="v num" id="tCompletedCount"><span class="mini-spin"></span></div>
         </div>
         <div class="stat">
-            <div class="l">วิเคราะห์แล้วทั้งหมด</div>
-            <div class="v num"><span id="completedTotal"><span class="mini-spin"></span></span> <small>(วันนี้ <span id="completedToday"><span class="mini-spin"></span></span>)</small></div>
+            <div class="l">เฉลี่ยต่อไฟล์ (ล่าสุด)</div>
+            <div class="v num" id="tAvgPerFile"><span class="mini-spin"></span></div>
         </div>
         <div class="stat">
-            <div class="l">สายเข้าระบบ/วัน</div>
-            <div class="v num"><span id="volumePerDay"><span class="mini-spin"></span></span> <small>(รับสาย <span id="answeredPerDay"><span class="mini-spin"></span></span>)</small></div>
-        </div>
-        <div class="stat">
-            <div class="l">ถ้าวิเคราะห์ทุกสาย</div>
-            <div class="v crit"><span id="fullAutoCost"><span class="mini-spin"></span></span><small>/เดือน</small></div>
+            <div class="l">เวลาที่ใช้ไปทั้งหมด (ประมาณ)</div>
+            <div class="v num" id="tTotalSpent"><span class="mini-spin"></span></div>
         </div>
     </div>
-    <p class="faint" style="font-size:11px;margin:-8px 0 14px">* ค่าเฉลี่ยจากยอดใช้จ่ายจริงทั้งหมดของ key หารด้วยจำนวนสายที่วิเคราะห์สำเร็จ (รวมงานทดสอบระหว่างพัฒนา จึงเป็นเพดานบน)</p>
+    <p class="faint" style="font-size:11px;margin:-12px 0 20px">ค่าเฉลี่ยคำนวณจากไฟล์ที่ลงทะเบียนในช่วง 6 ชั่วโมงล่าสุดเท่านั้น (กันไม่ให้สายที่ค้างคิวนานผิดปกติทำให้ค่าเฉลี่ยเพี้ยน) เวลารวมทั้งหมดเป็นค่าประมาณจากค่าเฉลี่ยนี้คูณจำนวนที่สำเร็จจริง</p>
 
-    <!-- Daily table -->
-    <div class="section-title">สายที่วิเคราะห์ย้อนหลัง 14 วัน</div>
-    <div class="card pad0">
-        <table class="dense">
-            <thead>
-                <tr>
-                    <th>วันที่</th>
-                    <th class="num">จำนวนสาย</th>
-                    <th class="num">นาทีเสียงรวม</th>
-                    <th class="num">ค่าใช้จ่ายโดยประมาณ</th>
-                </tr>
-            </thead>
-            <tbody id="dailyBody"></tbody>
-        </table>
+    <!-- Heatmap -->
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>ปฏิทินความคืบหน้ารายวัน</span>
+        <div style="display:flex;align-items:center;gap:10px" id="heatmapControls">
+            <select id="heatmapCompany" class="filter-select" style="display:none" onchange="loadHeatmap()"></select>
+            <button class="btn icon small" id="yearPrev" onclick="changeYear(-1)" title="ปีก่อนหน้า"><i data-lucide="chevron-left"></i></button>
+            <span class="b" id="yearLabel" style="min-width:44px;text-align:center">—</span>
+            <button class="btn icon small" id="yearNext" onclick="changeYear(1)" title="ปีถัดไป"><i data-lucide="chevron-right"></i></button>
+        </div>
     </div>
+    <div class="card">
+        <div class="heatmap-scroll">
+            <div id="heatmapGrid" class="hm-grid"></div>
+        </div>
+        <div class="hm-legend">
+            <span class="hm-legend-item"><i class="hm-swatch" style="background:var(--hm-empty)"></i> ไม่มีไฟล์</span>
+            <span class="hm-legend-item"><i class="hm-swatch" style="background:var(--hm-none)"></i> ยังไม่ทำ</span>
+            <span class="hm-legend-item"><i class="hm-swatch" style="background:var(--hm-partial)"></i> ทำบางส่วน</span>
+            <span class="hm-legend-item"><i class="hm-swatch" style="background:var(--hm-done)"></i> ทำครบแล้ว</span>
+            <span class="faint" style="margin-left:auto;font-size:11px" id="hmHint">ชี้ที่ช่องเพื่อดูรายละเอียด</span>
+        </div>
+    </div>
+
 </main>
 
 </div><!-- /.main -->
 </div><!-- /.shell -->
 
+<style>
+:root {
+    --hm-empty: var(--sunken);
+    --hm-none: color-mix(in srgb, var(--crit) 42%, var(--surface));
+    --hm-partial: color-mix(in srgb, var(--med) 55%, var(--surface));
+    --hm-done: var(--ok);
+}
+.heatmap-scroll { overflow-x: auto; padding-bottom: 4px; }
+.hm-grid {
+    display: grid;
+    grid-template-columns: 44px repeat(31, 14px);
+    grid-auto-rows: 14px;
+    gap: 3px;
+    min-width: max-content;
+}
+.hm-monthlabel {
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: center;
+    grid-column: 1;
+}
+.hm-daynum {
+    font-size: 9px;
+    color: var(--ink-faint);
+    text-align: center;
+}
+.hm-cell {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: var(--hm-empty);
+    cursor: default;
+}
+.hm-cell.has-data:hover { outline: 2px solid var(--ink-faint); outline-offset: 1px; }
+.hm-legend {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+}
+.hm-legend-item { display: flex; align-items: center; gap: 5px; }
+.hm-swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.filter-select {
+    font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink);
+}
+.progress-track { background: var(--sunken); border-radius: 20px; height: 8px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--ok); border-radius: 20px; }
+</style>
+
 <script>
-// Theme toggle: explicit choice overrides the OS preference and persists across reloads
-// (same 'vc-theme' localStorage key used across every page, so the choice follows you around).
 (function () {
     var root = document.documentElement;
     document.getElementById('themeToggle').addEventListener('click', function () {
@@ -174,7 +211,6 @@
     });
 })();
 
-// Sidebar collapse: smooth width transition (CSS), remembered across reloads.
 (function () {
     var rail = document.getElementById('rail');
     var btn = document.getElementById('railCollapseBtn');
@@ -185,16 +221,14 @@
     });
 })();
 
-// Icons are static (sidebar nav, header buttons) - render them now instead of waiting on this
-// page own async data load, so the sidebar never sits blank/text-only for a couple seconds.
 lucide.createIcons();
 
 const API_BASE = '../api/index.php';
-const THB = 33; // แสดงเป็นเงินบาทโดยประมาณ
 let aiToken = null;
-// Declared above initSession() on purpose: that IIFE runs while this script is still parsing, so a
-// `let` placed further down would be in its temporal dead zone and throw when the IIFE reads it.
+let isSuperAdmin = false;
 let sessionExpired = false;
+let currentYear = null;
+let availableYears = [];
 
 (function initSession() {
     const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
@@ -206,6 +240,7 @@ let sessionExpired = false;
     try {
         const user = JSON.parse(raw);
         aiToken = user.api_token || null;
+        isSuperAdmin = !!user.is_super_admin;
         document.getElementById('railAvatar').textContent = (user.name || '?').trim().charAt(0).toUpperCase();
         document.getElementById('railUserName').textContent = user.name + (user.company_name ? ' (' + user.company_name + ')' : '');
     } catch (e) { console.error(e); }
@@ -214,8 +249,6 @@ let sessionExpired = false;
         window.location.href = '../index.html';
         return;
     }
-    // The stored session carries no expiry of its own, so without this a token that already died
-    // server-side keeps being replayed and every request 401s into a page that just looks empty.
     if (isStoredSessionExpired(raw)) {
         endExpiredSession();
         return;
@@ -225,7 +258,6 @@ let sessionExpired = false;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function doLogout() {
-    // Revoke the token server-side, then leave — see index.html's doLogout().
     fetch('../logout.php', { method: 'POST' })
         .catch(() => {})
         .finally(() => {
@@ -235,7 +267,6 @@ function doLogout() {
         });
 }
 
-/** login.php sends api_token_expires_at as a UNIX epoch, so this can't be skewed by the client clock. */
 function isStoredSessionExpired(raw) {
     try {
         const exp = JSON.parse(raw).api_token_expires_at;
@@ -243,11 +274,6 @@ function isStoredSessionExpired(raw) {
     } catch (e) { return false; }
 }
 
-/**
- * Guarded because doLogout() only *queues* a navigation - the rest of this script keeps running, so
- * the bottom-of-page auto-load would fire, 401, and alert a second time before the page went away.
- * Same reason a page whose render fans out several parallel requests can't stack up one alert each.
- */
 function endExpiredSession() {
     if (sessionExpired) return;
     sessionExpired = true;
@@ -255,13 +281,7 @@ function endExpiredSession() {
     doLogout();
 }
 
-/**
- * Single place that reacts to the API rejecting our token. Before this, every caller on this page
- * swallowed the 401 into an empty table or a generic error, so an ended session looked exactly
- * like a broken page.
- */
 async function apiFetch(url, options = {}) {
-    // Already logging out - don't spend a request on a token we know is dead.
     if (sessionExpired) throw new Error('SESSION_EXPIRED');
     const res = await fetch(url, {
         ...options,
@@ -274,102 +294,155 @@ async function apiFetch(url, options = {}) {
     return res;
 }
 
-const usd = v => v == null ? '—' : '$' + Number(v).toFixed(v < 1 ? 4 : 2);
-const thb = v => v == null ? '' : '≈ ' + (Number(v) * THB).toLocaleString('th-TH', { maximumFractionDigits: 0 }) + ' บาท';
+function showError(msg) {
+    const errBox = document.getElementById('errorBox');
+    errBox.textContent = msg;
+    errBox.classList.remove('hidden');
+}
+
+function fmtDuration(seconds) {
+    if (seconds == null) return '—';
+    if (seconds < 60) return Math.round(seconds) + ' วิ';
+    if (seconds < 3600) return Math.round(seconds / 60) + ' นาที';
+    return (seconds / 3600).toFixed(1) + ' ชม.';
+}
 
 async function loadAll() {
-    const res = await apiFetch(`${API_BASE}/cost/summary`);
-    const data = await res.json();
-    const errBox = document.getElementById('errorBox');
-    if (!data.ok) {
-        errBox.textContent = data.message || data.error || 'โหลดข้อมูลไม่สำเร็จ';
-        errBox.classList.remove('hidden');
+    try {
+        const res = await apiFetch(`${API_BASE}/report/summary`);
+        const data = await res.json();
+        if (!data.ok) { showError(data.message || data.error || 'โหลดข้อมูลไม่สำเร็จ'); return; }
+        document.getElementById('errorBox').classList.add('hidden');
+        renderCompanies(data.companies);
+        renderTiming(data.timing);
+        setupHeatmapCompanySelector(data.companies);
+        document.getElementById('lastUpdated').textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH');
+        await loadHeatmap();
+    } catch (e) {
+        if (e.message === 'SESSION_EXPIRED') return;
+        showError('เกิดข้อผิดพลาด: ' + e.message);
+    }
+}
+
+function renderCompanies(companies) {
+    const tbody = document.getElementById('companyBody');
+    if (!companies || !companies.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="table-empty">ยังไม่มีข้อมูล</td></tr>';
         return;
     }
-    errBox.classList.add('hidden');
-
-    const u = data.openrouter.usage, c = data.openrouter.credits, s = data.sampling, st = data.stats;
-
-    if (data.openrouter.error) {
-        errBox.textContent = 'ดึงข้อมูลจาก OpenRouter ไม่ได้: ' + data.openrouter.error + ' (ตัวเลขจากฐานข้อมูลยังแสดงตามปกติ)';
-        errBox.classList.remove('hidden');
-    }
-
-    if (u) {
-        document.getElementById('usageDaily').textContent = usd(u.usage_daily);
-        document.getElementById('usageDailyThb').textContent = thb(u.usage_daily);
-        document.getElementById('usageMonthly').textContent = usd(u.usage_monthly);
-        document.getElementById('usageMonthlyThb').textContent = thb(u.usage_monthly);
-        document.getElementById('usageTotal').textContent = usd(u.usage);
-        document.getElementById('usageTotalThb').textContent = thb(u.usage);
-    }
-    if (c) {
-        const rem = document.getElementById('creditsRemaining');
-        rem.textContent = usd(c.remaining);
-        rem.className = 'v num ' + (c.remaining < 2 ? 'crit' : c.remaining < 5 ? 'med' : 'ok');
-        document.getElementById('creditsDetail').textContent = `เติมแล้ว ${usd(c.total_credits)} · ใช้ไป ${usd(c.total_usage)} (รวมทุกโปรเจคในบัญชี)`;
-    }
-
-    // Budget bar
-    if (u && s) {
-        const pct = Math.min(100, Math.round((u.usage_daily / s.budget_usd_per_day) * 100));
-        document.getElementById('budgetLabel').textContent = `${usd(u.usage_daily)} / ${usd(s.budget_usd_per_day)} (${thb(s.budget_usd_per_day)}/วัน)`;
-        const pctChip = document.getElementById('budgetPct');
-        pctChip.textContent = pct + '%';
-        pctChip.className = 'chip num ' + (pct >= 100 ? 'crit' : pct >= 75 ? 'med' : 'ok');
-        const bar = document.getElementById('budgetBar');
-        bar.style.width = pct + '%';
-        bar.style.background = pct >= 100 ? 'var(--crit)' : pct >= 75 ? 'var(--med)' : 'var(--accent)';
-    }
-    document.getElementById('sampledToday').textContent = s.sampled_today + ' สาย';
-    document.getElementById('maxPerRun').textContent = s.max_calls_per_run + ' สาย/รอบ';
-    document.getElementById('minDuration').textContent = s.min_duration_seconds + ' วินาที';
-    document.getElementById('randomShare').textContent = Math.round(s.random_share * 100) + '%';
-
-    // Per-call economics
-    document.getElementById('avgCost').textContent = usd(st.avg_cost_per_call_usd);
-    document.getElementById('avgCostThb').textContent = thb(st.avg_cost_per_call_usd);
-    document.getElementById('completedTotal').textContent = st.completed_total.toLocaleString();
-    document.getElementById('completedToday').textContent = st.completed_today;
-    document.getElementById('volumePerDay').textContent = st.volume_calls_per_day.toLocaleString();
-    document.getElementById('answeredPerDay').textContent = st.volume_answered_per_day.toLocaleString();
-    if (st.avg_cost_per_call_usd && st.volume_answered_per_day) {
-        const monthly = st.avg_cost_per_call_usd * st.volume_answered_per_day * 30;
-        document.getElementById('fullAutoCost').textContent = '≈ ' + (monthly * THB).toLocaleString('th-TH', { maximumFractionDigits: 0 }) + ' ฿';
-    }
-
-    // Daily table
-    const tbody = document.getElementById('dailyBody');
-    tbody.innerHTML = '';
-    (data.daily || []).forEach(d => {
-        const est = st.avg_cost_per_call_usd ? d.calls * st.avg_cost_per_call_usd : null;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${esc(d.day)}</td>
-            <td class="num">${d.calls}</td>
-            <td class="num">${d.minutes ?? '-'}</td>
-            <td class="num">${est ? usd(est) + ' <span class="dim">' + thb(est) + '</span>' : '-'}</td>`;
-        tbody.appendChild(tr);
-    });
-    if (!(data.daily || []).length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="table-empty">ยังไม่มีข้อมูล</td></tr>';
-    }
-
-    document.getElementById('lastUpdated').textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH');
+    tbody.innerHTML = companies.map(c => {
+        const handled = c.completed + c.skipped + c.failed;
+        const pct = c.total_files ? Math.round((handled / c.total_files) * 100) : 0;
+        return `<tr>
+            <td class="b">${esc(c.company_name)}</td>
+            <td class="num">${c.total_files.toLocaleString()}</td>
+            <td class="num" style="color:var(--ok)">${c.completed.toLocaleString()}</td>
+            <td class="num faint">${c.skipped.toLocaleString()}</td>
+            <td class="num" style="color:${c.failed ? 'var(--crit)' : 'var(--ink-faint)'}">${c.failed.toLocaleString()}</td>
+            <td class="num">${c.in_progress.toLocaleString()}</td>
+            <td class="num faint">${c.remaining.toLocaleString()}</td>
+            <td>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div class="progress-track" style="flex:1"><div class="progress-fill" style="width:${pct}%"></div></div>
+                    <span class="num" style="font-size:11px;min-width:32px">${pct}%</span>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
 }
 
-// Skipped entirely when initSession() already found the token expired, so a logging-out page doesn't
-// fire a doomed request on its way out. SESSION_EXPIRED is swallowed because the alert already said
-// it - surfacing it in the red error box too just looks like a second, unrelated failure.
-if (!sessionExpired) {
-    loadAll().catch(e => {
+function renderTiming(timing) {
+    document.getElementById('tCompletedCount').textContent = timing.completed_count.toLocaleString();
+    document.getElementById('tAvgPerFile').textContent = fmtDuration(timing.avg_seconds_per_file);
+    document.getElementById('tTotalSpent').textContent = timing.total_seconds_spent_est != null
+        ? fmtDuration(timing.total_seconds_spent_est) : '—';
+}
+
+function setupHeatmapCompanySelector(companies) {
+    const sel = document.getElementById('heatmapCompany');
+    if (!isSuperAdmin || companies.length <= 1) {
+        sel.style.display = 'none';
+        return;
+    }
+    sel.style.display = '';
+    if (!sel.dataset.built) {
+        sel.innerHTML = companies.map(c => `<option value="${c.company_id}">${esc(c.company_name)}</option>`).join('');
+        sel.dataset.built = '1';
+    }
+}
+
+async function loadHeatmap() {
+    const params = new URLSearchParams();
+    const sel = document.getElementById('heatmapCompany');
+    if (sel.style.display !== 'none' && sel.value) params.set('company_id', sel.value);
+    if (currentYear) params.set('year', currentYear);
+
+    try {
+        const res = await apiFetch(`${API_BASE}/report/heatmap?${params}`);
+        const data = await res.json();
+        if (!data.ok) { showError(data.message || 'โหลด heatmap ไม่สำเร็จ'); return; }
+        currentYear = data.year;
+        availableYears = data.available_years || [];
+        renderHeatmap(data);
+    } catch (e) {
         if (e.message === 'SESSION_EXPIRED') return;
-        const errBox = document.getElementById('errorBox');
-        errBox.textContent = 'เกิดข้อผิดพลาด: ' + e.message;
-        errBox.classList.remove('hidden');
-    });
+        showError('เกิดข้อผิดพลาด: ' + e.message);
+    }
 }
-lucide.createIcons();
+
+function changeYear(delta) {
+    const idx = availableYears.indexOf(currentYear);
+    const newIdx = idx - delta; // years listed newest-first
+    if (newIdx < 0 || newIdx >= availableYears.length) return;
+    currentYear = availableYears[newIdx];
+    loadHeatmap();
+}
+
+const MONTH_NAMES = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+function classifyDay(total, handled) {
+    if (total === 0) return 'empty';
+    if (handled === 0) return 'none';
+    if (handled >= total) return 'done';
+    return 'partial';
+}
+const CLASS_BG = { empty: 'var(--hm-empty)', none: 'var(--hm-none)', partial: 'var(--hm-partial)', done: 'var(--hm-done)' };
+const CLASS_LABEL = { empty: 'ไม่มีไฟล์', none: 'ยังไม่ทำ', partial: 'ทำบางส่วน', done: 'ทำครบแล้ว' };
+
+/** Months down the rows, days of month across the columns - reads like a normal calendar table,
+    each row scannable at a glance for which days that month are still outstanding. */
+function renderHeatmap(data) {
+    document.getElementById('yearLabel').textContent = data.year;
+    const idx = availableYears.indexOf(data.year);
+    document.getElementById('yearPrev').style.visibility = (availableYears.length > 1 && idx < availableYears.length - 1) ? 'visible' : 'hidden';
+    document.getElementById('yearNext').style.visibility = (availableYears.length > 1 && idx > 0) ? 'visible' : 'hidden';
+
+    const byDate = {};
+    (data.days || []).forEach(d => { byDate[d.date] = d; });
+    const year = data.year;
+
+    let html = '';
+    for (let d = 1; d <= 31; d++) {
+        html += `<div class="hm-daynum" style="grid-column:${d + 1};grid-row:1">${(d === 1 || d % 5 === 0) ? d : ''}</div>`;
+    }
+    for (let m = 0; m < 12; m++) {
+        html += `<div class="hm-monthlabel" style="grid-row:${m + 2};grid-column:1">${MONTH_NAMES[m]}</div>`;
+        const daysInMonth = new Date(year, m + 1, 0).getDate();
+        for (let d = 1; d <= 31; d++) {
+            if (d > daysInMonth) continue; // e.g. Feb 30/31 - no cell, not "empty"
+            const iso = year + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+            const rec = byDate[iso] || { total: 0, handled: 0 };
+            const cls = classifyDay(rec.total, rec.handled);
+            const title = `${iso} — ${CLASS_LABEL[cls]}` + (rec.total ? ` (${rec.handled}/${rec.total})` : '');
+            html += `<div class="hm-cell${rec.total ? ' has-data' : ''}" style="grid-row:${m + 2};grid-column:${d + 1};background:${CLASS_BG[cls]}" title="${esc(title)}"></div>`;
+        }
+    }
+    document.getElementById('heatmapGrid').innerHTML = html;
+}
+
+if (!sessionExpired) {
+    loadAll();
+}
 </script>
 </body>
 </html>
