@@ -313,4 +313,81 @@ class FraudCheckService
         $from = max(0, $start - 60);
         return ($from > 0 ? '…' : '') . mb_substr($text, $from, 160) . '…';
     }
+
+    /**
+     * Suggestions to continue outside the recorded channel — "แอดไลน์มาคุยกันนะ", a personal
+     * phone number for calls that will not go through the system.
+     *
+     * Same division of labor as payment channels: the model only extracts who suggested it and
+     * why, in their own words. The verdict is computed here, deterministically, because "why" is
+     * exactly the thing a model asked to also judge risk would be tempted to round up to
+     * suspicious — and in practice most of these are ordinary business ("ส่งรูปสินค้าให้ดูในไลน์
+     * ดีกว่า", a phone call cannot show a photo). Only the reason a human actually gave, matched
+     * against keywords, decides whether this needs review. Everything not recognisably about
+     * sending an image is flagged — not because it is wrong, but because a keyword list that only
+     * recognises "fine" cases is the only kind that is safe to make automatic.
+     *
+     * @param array<array<string,mixed>> $offChannelContacts from UnifiedPipelineAgent fraud_signals
+     * @return array{inserted:int,flagged:int}
+     */
+    public static function runOffChannel(PDO $pdo, int $conversationId, int $companyId, array $offChannelContacts): array
+    {
+        $pdo->prepare("DELETE FROM fraud_checks WHERE conversation_id = ? AND check_type = 'off_channel_contact'")
+            ->execute([$conversationId]);
+
+        $insert = $pdo->prepare('
+            INSERT INTO fraud_checks
+              (conversation_id, company_id, check_type, source, status, risk_level, channel_type,
+               detected_value, spoken_by, purpose, evidence, explanation)
+            VALUES (?,?,\'off_channel_contact\',\'llm\',?,?,?,?,?,?,?,?)
+        ');
+
+        $inserted = 0;
+        $flagged = 0;
+        foreach ($offChannelContacts as $c) {
+            if (!is_array($c)) {
+                continue;
+            }
+            $channel = trim((string) ($c['channel_type'] ?? ''));
+            $rawMention = trim((string) ($c['raw_mention'] ?? ''));
+            if ($channel === '' && $rawMention === '') {
+                continue; // nothing usable to review
+            }
+            $spokenBy = strtolower(trim((string) ($c['requested_by'] ?? '')));
+            if (!in_array($spokenBy, ['employee', 'customer'], true)) {
+                $spokenBy = 'unknown';
+            }
+            $reason = trim((string) ($c['stated_reason'] ?? ''));
+            $evidence = isset($c['evidence']) && is_string($c['evidence']) ? $c['evidence'] : null;
+
+            $isPhotoRelated = $reason !== '' && preg_match(
+                '/ส่งรูป|ถ่ายรูป|แนบรูป|ดูรูป|รูปภาพ|รูปสินค้า|รูปตัวอย่าง|ภาพสินค้า|ภาพตัวอย่าง/u',
+                $reason
+            ) === 1;
+
+            $insert->execute([
+                $conversationId,
+                $companyId,
+                $isPhotoRelated ? 'clear' : 'flagged',
+                $isPhotoRelated ? 'low' : 'medium',
+                $channel !== '' ? mb_substr($channel, 0, 30) : 'other',
+                $rawMention !== '' ? mb_substr($rawMention, 0, 255) : null,
+                $spokenBy,
+                $reason !== '' ? $reason : null,
+                $evidence,
+                $isPhotoRelated
+                    ? "เหตุผลที่ให้คือส่งรูป/ภาพสินค้า — เข้าใจได้ ไม่ต้องตรวจเพิ่ม (โทรศัพท์ส่งรูปไม่ได้)"
+                    : ($reason !== ''
+                        ? "ชวนออกนอกช่องทางที่บันทึกได้ ด้วยเหตุผล: {$reason} — ควรตรวจว่าเป็นเหตุผลที่รับได้หรือไม่"
+                        : "ชวนออกนอกช่องทางที่บันทึกได้ โดยไม่ได้ระบุเหตุผลชัดเจนในบทสนทนา — ควรตรวจสอบ"),
+            ]);
+
+            $inserted++;
+            if (!$isPhotoRelated) {
+                $flagged++;
+            }
+        }
+
+        return ['inserted' => $inserted, 'flagged' => $flagged];
+    }
 }

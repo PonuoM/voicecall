@@ -69,6 +69,15 @@ Read the transcript and context, and produce a structured analysis. Output stric
         "purpose": "why this channel was given (in Thai)",
         "evidence": "verbatim quote from transcript"
       }
+    ],
+    "off_channel_contacts": [
+      {
+        "channel_type": "line_id|personal_phone|other",
+        "raw_mention": "the exact form spoken in the transcript (e.g. the LINE ID, or 'ไลน์' if no ID given)",
+        "requested_by": "employee|customer",
+        "stated_reason": "why, in the speaker's own words (in Thai) -- verbatim or close paraphrase, not your own inference",
+        "evidence": "verbatim quote from transcript"
+      }
     ]
   }
 }
@@ -100,6 +109,20 @@ Do NOT include a number or ID as a payment channel when the surrounding context 
 Only capture a channel when there is an explicit payment-purpose anchor: "โอนมาที่", "พร้อมเพย์เบอร์",
 "ส่งสลิปมาที่", "บัญชีชื่อ", or equivalent. If the purpose is ambiguous, leave it out rather than guess
 -- a missed channel costs nothing; a wrong one wastes a reviewer's time chasing a fertilizer formula.
+
+For "fraud_signals.off_channel_contacts": capture it when someone in the call actively SUGGESTS or
+ASKS to continue outside this recorded channel -- "แอดไลน์มาคุยกันนะ", "โทรหาผมที่เบอร์ส่วนตัวดีกว่า",
+offering or requesting a LINE ID or a personal phone number as somewhere to continue the
+conversation. In "stated_reason" write down whatever reason was actually given in the call, in the
+speaker's own words -- do not invent one and do not judge whether it is a good reason, that
+happens outside the model. Do NOT capture:
+- the company's own official LINE/page being mentioned or confirmed (routine order confirmation
+  through an already-established channel is normal business here, not a redirect);
+- the customer simply stating they already have the company's contact info;
+- a callback number given for the same reason as in payment_channels (so the OTHER party can call
+  back), which is not a request to move the conversation itself off-channel.
+If genuinely nothing was said about why, leave "stated_reason" as an empty string rather than
+guessing -- an empty reason is itself useful signal, and a fabricated one is not.
 PROMPT;
 
     /**
@@ -338,6 +361,18 @@ PROMPT;
             // Non-fatal: the extraction survives in extracted_entities.raw_json, so a failed
             // cross-check (e.g. ERP unreachable) is recoverable without paying for the LLM again.
             file_put_contents(LOG_DIR . '/fraud_error.log', date('Y-m-d H:i:s') . " conversation={$conversationId} " . $e->getMessage() . "\n", FILE_APPEND);
+        }
+
+        // 8. Off-channel contact — same extract-here/decide-there split as payment channels. The
+        // model reports who suggested leaving the recorded channel and the reason they actually
+        // gave; FraudCheckService decides whether that reason clears it (sending a photo, which a
+        // phone call cannot do) or needs a human's attention, by matching the stated words rather
+        // than trusting either the model's or this comment's opinion of what counts as a good reason.
+        try {
+            $offChannel = $result['fraud_signals']['off_channel_contacts'] ?? [];
+            FraudCheckService::runOffChannel($pdo, $conversationId, $companyId, is_array($offChannel) ? $offChannel : []);
+        } catch (Throwable $e) {
+            file_put_contents(LOG_DIR . '/fraud_error.log', date('Y-m-d H:i:s') . " conversation={$conversationId} (off_channel) " . $e->getMessage() . "\n", FILE_APPEND);
         }
 
         return $result;
