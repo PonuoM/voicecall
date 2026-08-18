@@ -122,18 +122,64 @@ class OpenRouterClient
     {
         $raw = self::chat($systemPrompt, $userPrompt, true, $model);
         $decoded = self::extractJson($raw);
-        if ($decoded !== null) {
+        if ($decoded !== null && !self::containsReplacementChar($decoded)) {
             return $decoded;
         }
 
-        $retryPrompt = "Your previous response was not valid JSON. Return ONLY a valid JSON object, no markdown fences, no commentary.\n\nPrevious response:\n{$raw}";
+        // Two different reasons to retry, both real. A reasoning model occasionally wraps the
+        // object in prose extractJson() cannot recover, or -- confirmed against production, not
+        // theoretical -- emits U+FFFD in place of a real character partway through a long Thai
+        // string. 32 of ~238 completed conversations had it in executive_summary alone: "บทสนทนา"
+        // came back as "�ทสนทนา" mid-response while the same word appeared correctly written
+        // elsewhere in that same response, which is the signature of a token-boundary slip during
+        // generation rather than anything wrong with the request. A fresh generation is a fresh roll
+        // and, empirically, not the same roll.
+        $retryReason = $decoded === null
+            ? 'Your previous response was not valid JSON.'
+            : 'Your previous response contained the Unicode replacement character (U+FFFD, shown as a black diamond with a question mark) in place of one or more real characters. Regenerate the ENTIRE response with no replacement characters anywhere.';
+        $retryPrompt = "{$retryReason} Return ONLY a valid JSON object, no markdown fences, no commentary.\n\nPrevious response:\n{$raw}";
         $raw2 = self::chat($systemPrompt, $retryPrompt, true, $model);
         $decoded2 = self::extractJson($raw2);
-        if ($decoded2 !== null) {
+        if ($decoded2 !== null && !self::containsReplacementChar($decoded2)) {
             return $decoded2;
         }
 
+        // Neither attempt came back clean. Prefer whichever one actually parsed -- losing one
+        // garbled word inside a long summary is not worth discarding an otherwise-complete
+        // analysis over, and the alternative (throwing here) means the conversation gets marked
+        // failed for a single mangled character. Logged rather than silently accepted, so these
+        // rows can be found and reprocessed later instead of being indistinguishable from clean ones.
+        $usable = $decoded2 ?? $decoded;
+        if ($usable !== null) {
+            file_put_contents(
+                LOG_DIR . '/replacement_char.log',
+                date('Y-m-d H:i:s') . " model={$model} both attempts " . ($decoded2 === null ? 'first-parsed-second-failed' : 'still contain U+FFFD after retry') . "\n",
+                FILE_APPEND
+            );
+            return $usable;
+        }
+
         throw new RuntimeException('OpenRouter did not return valid JSON after retry: ' . substr($raw2, 0, 500));
+    }
+
+    /**
+     * True if the Unicode replacement character (U+FFFD) appears anywhere in a decoded value --
+     * checked recursively since the corruption can land inside any nested string, not only
+     * top-level ones.
+     */
+    private static function containsReplacementChar($value): bool
+    {
+        if (is_string($value)) {
+            return strpos($value, "\u{FFFD}") !== false;
+        }
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                if (self::containsReplacementChar($item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

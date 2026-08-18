@@ -100,6 +100,17 @@ class SttAgent
     }
 
     /**
+     * A model call that has to regenerate the whole transcript back out (verbatim, per turn) inside
+     * JSON scales its own output with input length - and on a real 4,096-character call, MiniMax
+     * never returned at all: the request timed out at 600s with zero bytes received, not a slow
+     * reply, a stuck one. The analysis call on the same transcript answers in about a minute
+     * because it only has to produce a short summary, not echo the call back. Capping how much
+     * verbatim text any single call must reproduce keeps every call in that same fast regime
+     * regardless of how long the phone call itself was.
+     */
+    private const TURN_SPLIT_CHUNK_CHARS = 1200;
+
+    /**
      * @return array<array{speaker_label:string,role:string,text:string}>
      */
     private static function inferSpeakerTurns(string $fullText, array $conversation): array
@@ -109,16 +120,76 @@ class SttAgent
             return [];
         }
 
+        $chunks = self::splitTranscriptIntoChunks($fullText, self::TURN_SPLIT_CHUNK_CHARS);
+
+        $result = [];
+        $lastRole = null;
+        foreach ($chunks as $i => $chunk) {
+            $turns = self::inferTurnsForChunk($chunk, $conversation, $i === 0, $lastRole, (int) $conversation['id']);
+            foreach ($turns as $turn) {
+                $result[] = $turn;
+                $lastRole = $turn['role'];
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Splits on whitespace near the target size when the transcript has any (STT output
+     * occasionally leaves gaps at pauses); otherwise cuts at the character limit outright. Thai is
+     * written unspaced, so a mid-word cut here costs the model at most one word of context at a
+     * seam it already has to guess across - the same tradeoff already accepted where audio itself
+     * is chunked (see the 30-second-window fix in the ASR service).
+     */
+    private static function splitTranscriptIntoChunks(string $text, int $limit): array
+    {
+        $len = mb_strlen($text);
+        if ($len <= $limit) {
+            return [$text];
+        }
+
+        $chunks = [];
+        $pos = 0;
+        while ($pos < $len) {
+            $end = min($pos + $limit, $len);
+            if ($end < $len) {
+                $window = mb_substr($text, $pos, $limit);
+                $lastSpace = mb_strrpos($window, ' ');
+                if ($lastSpace !== false && $lastSpace > $limit * 0.5) {
+                    $end = $pos + $lastSpace + 1;
+                }
+            }
+            $chunks[] = trim(mb_substr($text, $pos, $end - $pos));
+            $pos = $end;
+        }
+        return array_values(array_filter($chunks, function ($c) {
+            return $c !== '';
+        }));
+    }
+
+    /**
+     * @return array<array{speaker_label:string,role:string,text:string}>
+     */
+    private static function inferTurnsForChunk(string $chunk, array $conversation, bool $isFirstChunk, ?string $lastRole, int $conversationId): array
+    {
         // Real, observed failure: with zero acoustic/diarization signal, a small model guessing
         // employee-vs-customer from short ambiguous turns ("ค่ะ", "ใช่", "ครับ") gets it backwards
         // often enough that a user listening to the actual audio caught it. These two context
         // clues are free (already known before STT even runs) and give the model something
         // concrete to anchor on instead of guessing from tone alone.
-        $directionHint = $conversation['direction'] === 'OUT'
-            ? 'This call is OUTBOUND: the employee dialed the customer. Whoever ANSWERS a ringing phone speaks first, almost always just a bare "hello"/"yes" - so the very first short utterance is most likely the CUSTOMER answering, and the employee speaks next with the substantive opening (identifying themselves/the company, stating why they called).'
-            : ($conversation['direction'] === 'IN'
-                ? 'This call is INBOUND: the customer dialed the employee. Whoever ANSWERS a ringing phone speaks first, almost always just a bare "hello"/"yes" - so the very first short utterance is most likely the EMPLOYEE answering, and the customer speaks next with the substantive opening (stating their question/request).'
-                : '');
+        if ($isFirstChunk) {
+            $continuityHint = $conversation['direction'] === 'OUT'
+                ? 'This call is OUTBOUND: the employee dialed the customer. Whoever ANSWERS a ringing phone speaks first, almost always just a bare "hello"/"yes" - so the very first short utterance is most likely the CUSTOMER answering, and the employee speaks next with the substantive opening (identifying themselves/the company, stating why they called).'
+                : ($conversation['direction'] === 'IN'
+                    ? 'This call is INBOUND: the customer dialed the employee. Whoever ANSWERS a ringing phone speaks first, almost always just a bare "hello"/"yes" - so the very first short utterance is most likely the EMPLOYEE answering, and the customer speaks next with the substantive opening (stating their question/request).'
+                    : '');
+        } else {
+            // Mid-call chunk: there is no "who answers first" signal, but the previous chunk's
+            // last speaker is known for free and the conversation almost always alternates.
+            $continuityHint = $lastRole && $lastRole !== 'unknown'
+                ? "This is a MID-CALL continuation of an ongoing conversation (not the start of the call). The turn immediately before this excerpt was spoken by the {$lastRole}, so this excerpt most likely opens with the other party unless the same speaker is clearly still talking."
+                : 'This is a MID-CALL continuation of an ongoing conversation (not the start of the call).';
+        }
         $nameHints = [];
         if (!empty($conversation['erp_employee_name'])) {
             $nameHints[] = "The employee's real name (from caller-ID lookup, NOT necessarily said aloud) is \"{$conversation['erp_employee_name']}\".";
@@ -129,21 +200,23 @@ class SttAgent
         $nameHintText = $nameHints ? ("\n" . implode(' ', $nameHints)
             . ' If a turn addresses someone by one of these names (e.g. calling out to them, asking "is this so-and-so?"), the speaker of that turn is talking TO that person, not AS them - in Thai telesales calls people very often open by stating the other party\'s name to confirm they reached the right person.') : '';
 
-        $prompt = "Below is a plain-text transcript of a business phone call (no speaker markers, no timestamps - "
-            . "it came from an STT engine that only returns continuous text). Split it into an ordered list of "
-            . "speaker turns. Use only \"speaker_1\" and \"speaker_2\" as labels (assume two-party conversation "
-            . "unless there is clear evidence of a third party). Classify each turn's speaker_label as \"employee\" "
-            . "(sales/service agent - greets, identifies the company, offers products/services, explains policy) or "
-            . "\"customer\" (asks questions, makes requests/complaints, reports their own situation, responds to "
-            . "offers) or \"unknown\" if unclear. {$directionHint}{$nameHintText} Preserve the original wording "
-            . "verbatim per turn - do not summarize or translate.\n\n"
-            . "TRANSCRIPT:\n{$fullText}\n\n"
+        $prompt = "Below is an excerpt of a plain-text transcript of a business phone call (no speaker markers, "
+            . "no timestamps - it came from an STT engine that only returns continuous text). Split it into an "
+            . "ordered list of speaker turns. Use only \"speaker_1\" and \"speaker_2\" as labels (assume "
+            . "two-party conversation unless there is clear evidence of a third party). Classify each turn's "
+            . "speaker_label as \"employee\" (sales/service agent - greets, identifies the company, offers "
+            . "products/services, explains policy) or \"customer\" (asks questions, makes requests/complaints, "
+            . "reports their own situation, responds to offers) or \"unknown\" if unclear. "
+            . "{$continuityHint}{$nameHintText} Preserve the original wording verbatim per turn - do not "
+            . "summarize or translate. This excerpt may start or end mid-sentence; that is expected, keep the "
+            . "partial wording as-is rather than completing or dropping it.\n\n"
+            . "TRANSCRIPT EXCERPT:\n{$chunk}\n\n"
             . "Return JSON: {\"turns\": [{\"speaker_label\": \"speaker_1\", \"role\": \"employee\", \"text\": \"...\"}, ...]}";
 
         try {
             // Stronger model than the agent default (flash-lite) - this task has to track who's
-            // who across an entire unsegmented transcript with no acoustic signal, the same
-            // reasoning that justified a stronger model for compliance checking applies here.
+            // who with no acoustic signal, the same reasoning that justified a stronger model for
+            // compliance checking applies here.
             $resp = OpenRouterClient::chatJson(
                 'You are a precise conversation-analysis assistant. Output strict JSON only.',
                 $prompt,
@@ -151,13 +224,20 @@ class SttAgent
             );
             $turns = $resp['turns'] ?? [];
         } catch (Throwable $e) {
+            file_put_contents(
+                LOG_DIR . '/turn_split_failure.log',
+                date('Y-m-d H:i:s') . " conversation_id={$conversationId} chunk_chars=" . mb_strlen($chunk)
+                    . " " . get_class($e) . ": " . $e->getMessage() . "\n",
+                FILE_APPEND
+            );
             $turns = [];
         }
 
         if (empty($turns)) {
-            // Fallback: no turn split available - keep the whole transcript as one unattributed turn
-            // rather than silently dropping it.
-            return [['speaker_label' => 'speaker_1', 'role' => 'unknown', 'text' => $fullText]];
+            // Fallback: no turn split available for this chunk - keep it as one unattributed turn
+            // rather than silently dropping it. Scoped to the chunk, not the whole call, so one
+            // slow/stuck excerpt no longer degrades an otherwise-clean transcript to a single block.
+            return [['speaker_label' => 'speaker_1', 'role' => 'unknown', 'text' => $chunk]];
         }
 
         $result = [];

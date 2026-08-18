@@ -1470,18 +1470,26 @@ function renderAiModalBody(data) {
             const role = roleByLabel[label];
             if (role === 'employee') {
                 const name = (c && c.erp_employee_name) || (e && e.employee_name);
-                return { text: name ? `พนักงาน (${name})` : 'พนักงาน', color: 'var(--accent-ink)' };
+                return { text: name ? `พนักงาน (${name})` : 'พนักงาน', side: 'left', bg: 'var(--accent-soft, #e8f0ff)', color: 'var(--accent-ink)' };
             }
             if (role === 'customer') {
                 const name = (c && c.erp_customer_name) || (e && e.customer_name);
-                return { text: name ? `ลูกค้า (${name})` : 'ลูกค้า', color: 'var(--high)' };
+                return { text: name ? `ลูกค้า (${name})` : 'ลูกค้า', side: 'right', bg: 'var(--high-soft, #ffeeee)', color: 'var(--high)' };
             }
-            return { text: label, color: 'var(--ink-dim)' };
+            return { text: label, side: 'center', bg: 'var(--sunken)', color: 'var(--ink-dim)' };
         };
         html += `<div>
             <div class="section-title">บทสนทนา</div>
-            <div style="background:var(--sunken);border-radius:var(--radius-sm);padding:12px;max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
-                ${(data.segments||[]).map(seg => { const sp = speakerLabelHtml(seg.speaker_label); return `<p style="font-size:12px;margin:0"><span class="b" style="color:${sp.color}">${escapeHtml(sp.text)}:</span> ${escapeHtml(seg.text)}</p>`; }).join('')}
+            <div style="background:var(--sunken);border-radius:var(--radius-sm);padding:12px;max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+                ${(data.segments||[]).map(seg => {
+                    const sp = speakerLabelHtml(seg.speaker_label);
+                    const align = sp.side === 'right' ? 'flex-end' : (sp.side === 'left' ? 'flex-start' : 'center');
+                    const radius = sp.side === 'right' ? '10px 10px 2px 10px' : (sp.side === 'left' ? '10px 10px 10px 2px' : '10px');
+                    return `<div style="align-self:${align};max-width:78%;background:${sp.bg};border-radius:${radius};padding:6px 10px">
+                        <div style="font-size:10px;font-weight:600;color:${sp.color};margin-bottom:2px">${escapeHtml(sp.text)}</div>
+                        <div style="font-size:12px;line-height:1.4">${escapeHtml(seg.text)}</div>
+                    </div>`;
+                }).join('')}
             </div>
         </div>`;
     }
