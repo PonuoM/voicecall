@@ -64,6 +64,11 @@ try {
             handle_prompts($pdo, $currentUser, $id, $action);
             break;
 
+        case 'timeline':
+            require_once __DIR__ . '/Controllers/TimelineController.php';
+            handle_timeline($pdo, $currentUser);
+            break;
+
         default:
             json_response(['ok' => false, 'error' => 'NOT_FOUND', 'message' => "Unknown resource '{$resource}'"], 404);
     }
