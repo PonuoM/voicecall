@@ -29,6 +29,63 @@ class AudioFetcher
     }
 
     /**
+     * abuse_interstitial is not a per-file problem - it is Google Drive deciding this IP itself is
+     * abusive, and it outlasts the ~6 minutes of in-request backoff below by a wide margin. Without
+     * this, the backlog drain kept discovering that fact one file at a time: every candidate in a
+     * batch spent its own four retries finding out the whole IP was still blocked, so a single
+     * active block turned into dozens of near-simultaneous failures (see the timeline page after
+     * this happened for real - 30 conversations, 30 identical abuse_interstitial errors, seconds
+     * apart) instead of costing one. Recording the block once and skipping every download attempt
+     * until it should have lifted turns that into a single wasted request instead of the whole
+     * batch, and escalating the cooldown on repeat trips stops a too-short wait from just
+     * re-triggering it immediately.
+     */
+    private const CIRCUIT_FILE_NAME = 'drive_circuit_breaker.json';
+    private const CIRCUIT_BASE_COOLDOWN_SECONDS = 1200; // 20 minutes
+    private const CIRCUIT_MAX_COOLDOWN_SECONDS = 14400;  // 4 hours
+
+    /** @return int|null Unix timestamp the block lifts at, or null if Drive is not currently blocked. */
+    public static function driveCircuitOpen(): ?int
+    {
+        $state = self::readCircuitState();
+        if ($state && (int) $state['blocked_until'] > time()) {
+            return (int) $state['blocked_until'];
+        }
+        return null;
+    }
+
+    private static function readCircuitState(): ?array
+    {
+        $path = LOG_DIR . '/' . self::CIRCUIT_FILE_NAME;
+        if (!is_file($path)) {
+            return null;
+        }
+        $data = json_decode((string) file_get_contents($path), true);
+        return is_array($data) ? $data : null;
+    }
+
+    private static function tripDriveCircuit(): void
+    {
+        $state = self::readCircuitState() ?: ['consecutive_blocks' => 0];
+        $blocks = ((int) ($state['consecutive_blocks'] ?? 0)) + 1;
+        $cooldown = min(self::CIRCUIT_MAX_COOLDOWN_SECONDS, self::CIRCUIT_BASE_COOLDOWN_SECONDS * (2 ** ($blocks - 1)));
+        file_put_contents(LOG_DIR . '/' . self::CIRCUIT_FILE_NAME, json_encode([
+            'consecutive_blocks' => $blocks,
+            'blocked_until' => time() + $cooldown,
+            'tripped_at' => date('Y-m-d H:i:s'),
+        ]));
+    }
+
+    /** A real success means whatever block existed has lifted - future trips restart the backoff ladder. */
+    private static function resetDriveCircuit(): void
+    {
+        $path = LOG_DIR . '/' . self::CIRCUIT_FILE_NAME;
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    /**
      * Drive answers a throttle two different ways, and only one of them is JSON.
      *
      * Ordinary quota rejections come back as a JSON error body. Once abuse detection trips for the
@@ -45,6 +102,14 @@ class AudioFetcher
         if (!GDRIVE_API_KEY) {
             throw new RuntimeException('GDRIVE_API_KEY is not configured');
         }
+
+        $blockedUntil = self::driveCircuitOpen();
+        if ($blockedUntil !== null) {
+            throw new RuntimeException(
+                'Drive download skipped (abuse_interstitial circuit breaker open until ' . date('H:i:s', $blockedUntil) . ')'
+            );
+        }
+
         $url = "https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media&key=" . GDRIVE_API_KEY;
         $lastMessage = 'unknown error';
 
@@ -62,9 +127,11 @@ class AudioFetcher
             curl_close($ch);
 
             if ($data !== false && $httpCode === 200 && strlen($data) >= 44) {
+                self::resetDriveCircuit();
                 return $data;
             }
 
+            $reason = null;
             if ($data === false) {
                 $lastMessage = "curl: {$curlError}";
                 $retryable = true;
@@ -76,6 +143,9 @@ class AudioFetcher
             }
 
             if (!$retryable || $attempt === $attempts) {
+                if ($reason === 'abuse_interstitial') {
+                    self::tripDriveCircuit();
+                }
                 break;
             }
             // Minutes, not seconds. The interstitial is an IP-level cooldown; retrying at 2s/4s/8s

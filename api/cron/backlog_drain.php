@@ -180,6 +180,16 @@ foreach ($candidates as $cand) {
         break;
     }
 
+    // abuse_interstitial blocks the whole IP, not one file - the first candidate to hit it already
+    // proved that, so claiming and failing every remaining candidate the same way just multiplies
+    // one outage into dozens of 'failed' rows. Leave them 'pending' and let a later run, once the
+    // cooldown AudioFetcher recorded has passed, pick up exactly where this one stopped.
+    $driveBlockedUntil = AudioFetcher::driveCircuitOpen();
+    if ($driveBlockedUntil !== null) {
+        drain_log('Drive is in an abuse_interstitial cooldown until ' . date('H:i:s', $driveBlockedUntil) . ' — stopping this run early');
+        break;
+    }
+
     $companyId = (int) $cand['company_id'];
     $skipSet = $unknownSkipSets[$companyId];
     // Must go through UnknownNumberService::normalize(), not a hand-rolled digit-strip: Drive

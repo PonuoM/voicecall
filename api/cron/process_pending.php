@@ -59,6 +59,14 @@ foreach ($rows as $row) {
         break;
     }
 
+    // Same reasoning as backlog_drain.php: abuse_interstitial blocks the whole IP, so one hit
+    // already proved every remaining candidate would fail the same way.
+    $driveBlockedUntil = AudioFetcher::driveCircuitOpen();
+    if ($driveBlockedUntil !== null) {
+        echo 'Drive is in an abuse_interstitial cooldown until ' . date('H:i:s', $driveBlockedUntil) . " — stopping this run early.\n";
+        break;
+    }
+
     $id = (int) $row['id'];
     $size = $row['size_bytes'] !== null ? (int) $row['size_bytes'] : null;
 
