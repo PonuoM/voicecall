@@ -22,3 +22,10 @@ api/logs/*
 Thumbs.db
 .claude/
 .playwright-mcp/
+
+# Google service account private key — a credential, same class as .env. api/certs/.htaccess
+# stops the web server handing it out; this stops git. The .htaccess itself stays versioned.
+api/certs/gdrive-service-account.json
+
+# Billing exports pulled from provider dashboards for analysis — account data, not code.
+export_bill_*.csv

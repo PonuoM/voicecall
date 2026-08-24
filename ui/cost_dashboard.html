@@ -119,6 +119,34 @@
     </div>
     <p class="faint" style="font-size:11px;margin:-12px 0 20px">ค่าเฉลี่ยคำนวณจากไฟล์ที่ลงทะเบียนในช่วง 6 ชั่วโมงล่าสุดเท่านั้น (กันไม่ให้สายที่ค้างคิวนานผิดปกติทำให้ค่าเฉลี่ยเพี้ยน) เวลารวมทั้งหมดเป็นค่าประมาณจากค่าเฉลี่ยนี้คูณจำนวนที่สำเร็จจริง</p>
 
+    <!-- Daily throughput -->
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>ปริมาณงานที่ทำได้รายวัน</span>
+        <div style="display:flex;align-items:center;gap:10px">
+            <select id="tpCompany" class="filter-select" style="display:none" onchange="loadThroughput()"></select>
+            <button class="btn icon small" id="monthPrev" onclick="changeMonth(-1)" title="เดือนก่อนหน้า"><i data-lucide="chevron-left"></i></button>
+            <span class="b" id="monthLabel" style="min-width:88px;text-align:center">—</span>
+            <button class="btn icon small" id="monthNext" onclick="changeMonth(1)" title="เดือนถัดไป"><i data-lucide="chevron-right"></i></button>
+        </div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+        <div class="tp-stats">
+            <div class="tp-stat"><span class="l">รวมทั้งเดือน</span><span class="v num" id="tpTotal">—</span></div>
+            <div class="tp-stat"><span class="l">เฉลี่ยต่อวันที่เดินงาน</span><span class="v num" id="tpAvg">—</span></div>
+            <div class="tp-stat"><span class="l">สูงสุดในวันเดียว</span><span class="v num" id="tpPeak">—</span></div>
+        </div>
+        <div class="tp-wrap" id="tpWrap">
+            <svg id="tpChart" viewBox="0 0 1200 300" role="img"
+                 aria-label="กราฟจำนวนสายที่ประมวลผลสำเร็จรายวัน"></svg>
+            <div class="tp-tip" id="tpTip" hidden></div>
+        </div>
+        <div class="hm-legend">
+            <span class="hm-legend-item"><i class="tp-swatch" style="background:var(--accent)"></i> วิเคราะห์สำเร็จ</span>
+            <span class="hm-legend-item" id="tpFailLegend" hidden><i class="tp-swatch" style="background:var(--crit)"></i> ล้มเหลว</span>
+            <span class="faint" style="margin-left:auto;font-size:11px">นับตามวันที่ AI ประมวลผลเสร็จ ไม่ใช่วันที่โทร — ชี้ที่กราฟเพื่อดูรายวัน</span>
+        </div>
+    </div>
+
     <!-- Heatmap -->
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
         <span>ปฏิทินความคืบหน้ารายวัน</span>
@@ -154,6 +182,32 @@
     --hm-partial: color-mix(in srgb, var(--med) 55%, var(--surface));
     --hm-done: var(--ok);
 }
+/* --- Daily throughput chart ------------------------------------------------------------- */
+.tp-stats { display: flex; flex-wrap: wrap; gap: 26px; margin-bottom: 6px; }
+.tp-stat { display: flex; flex-direction: column; gap: 1px; }
+.tp-stat .l { font-size: 11px; color: var(--ink-dim); }
+.tp-stat .v { font-size: 19px; font-weight: 600; }
+/* The SVG scales uniformly (no preserveAspectRatio override) so dots stay round and stroke
+   widths stay even at every window size — a stretched chart reads as a different shape. */
+.tp-wrap { position: relative; }
+#tpChart { width: 100%; height: auto; display: block; overflow: visible; }
+.tp-grid { stroke: var(--line); stroke-width: 1; }
+.tp-axis { fill: var(--ink-faint); font-size: 13px; }
+.tp-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.tp-fail { fill: none; stroke: var(--crit); stroke-width: 1.6; stroke-linejoin: round; opacity: .85; }
+.tp-dot { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.tp-guide { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.tp-hit { fill: transparent; cursor: crosshair; }
+.tp-empty { fill: var(--ink-faint); font-size: 14px; }
+.tp-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.tp-tip {
+    position: absolute; pointer-events: none; z-index: 5; transform: translate(-50%, -100%);
+    background: var(--ink); color: var(--bg); border-radius: var(--radius-sm);
+    padding: 6px 10px; font-size: 11.5px; line-height: 1.45; white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(0,0,0,.22);
+}
+.tp-tip .d { color: var(--ink-faint); font-size: 10.5px; }
+.tp-tip .n { font-weight: 600; }
 .heatmap-scroll { overflow-x: auto; padding-bottom: 4px; }
 .hm-grid {
     display: grid;
@@ -235,6 +289,8 @@ let isSuperAdmin = false;
 let sessionExpired = false;
 let currentYear = null;
 let availableYears = [];
+let currentMonth = null;
+let availableMonths = [];
 
 (function initSession() {
     const raw = sessionStorage.getItem('voicecall_user') || localStorage.getItem('voicecall_user_shared');
@@ -322,7 +378,9 @@ async function loadAll() {
         renderCompanies(data.companies);
         renderTiming(data.timing);
         setupHeatmapCompanySelector(data.companies);
+        setupThroughputCompanySelector(data.companies);
         document.getElementById('lastUpdated').textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH');
+        await loadThroughput();
         await loadHeatmap();
     } catch (e) {
         if (e.message === 'SESSION_EXPIRED') return;
@@ -362,6 +420,195 @@ function renderTiming(timing) {
     document.getElementById('tAvgPerFile').textContent = fmtDuration(timing.avg_seconds_per_file);
     document.getElementById('tTotalSpent').textContent = timing.total_seconds_spent_est != null
         ? fmtDuration(timing.total_seconds_spent_est) : '—';
+}
+
+/* --- Daily throughput chart -------------------------------------------------------------- */
+
+function setupThroughputCompanySelector(companies) {
+    const sel = document.getElementById('tpCompany');
+    if (!isSuperAdmin || companies.length <= 1) { sel.style.display = 'none'; return; }
+    sel.style.display = '';
+    if (!sel.dataset.built) {
+        sel.innerHTML = companies.map(c => `<option value="${c.company_id}">${esc(c.company_name)}</option>`).join('');
+        sel.dataset.built = '1';
+    }
+}
+
+async function loadThroughput() {
+    const params = new URLSearchParams();
+    const sel = document.getElementById('tpCompany');
+    if (sel.style.display !== 'none' && sel.value) params.set('company_id', sel.value);
+    if (currentMonth) params.set('month', currentMonth);
+
+    try {
+        const res = await apiFetch(`${API_BASE}/report/throughput?${params}`);
+        const data = await res.json();
+        if (!data.ok) { showError(data.message || 'โหลดกราฟรายวันไม่สำเร็จ'); return; }
+        currentMonth = data.month;
+        availableMonths = data.available_months || [];
+        renderThroughput(data);
+    } catch (e) {
+        if (e.message === 'SESSION_EXPIRED') return;
+        showError('เกิดข้อผิดพลาด: ' + e.message);
+    }
+}
+
+function changeMonth(delta) {
+    const idx = availableMonths.indexOf(currentMonth);
+    const newIdx = idx - delta; // months listed newest-first
+    if (newIdx < 0 || newIdx >= availableMonths.length) return;
+    currentMonth = availableMonths[newIdx];
+    loadThroughput();
+}
+
+/** A round gap between gridlines, so the axis reads 0/50/100/150 instead of 0/63/125/188.
+    Rounding the top of the scale first and dividing it afterwards is what produces those: 211
+    ceils to a tidy-looking 250, and a quarter of 250 is 62.5. Pick the step first and let the top
+    fall where it lands. Never below 1 — these are whole recordings, not a continuous quantity. */
+function niceStep(rough) {
+    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    const n = rough / mag;
+    const s = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+    return Math.max(1, s * mag);
+}
+
+const TP = { W: 1200, H: 300, L: 52, R: 18, T: 20, B: 34 };
+
+/** One point per day across the selected month. Days with nothing processed are plotted as a real
+    zero rather than skipped: the flat stretches are the point of the chart — that is what an
+    outage looks like, and joining 18 Aug straight to 20 Aug would hide a whole dead day. */
+function renderThroughput(data) {
+    const [yStr, mStr] = data.month.split('-');
+    const year = parseInt(yStr, 10), mIdx = parseInt(mStr, 10) - 1;
+
+    document.getElementById('monthLabel').textContent = MONTH_NAMES[mIdx] + ' ' + year;
+    const idx = availableMonths.indexOf(data.month);
+    document.getElementById('monthPrev').style.visibility = (availableMonths.length > 1 && idx < availableMonths.length - 1) ? 'visible' : 'hidden';
+    document.getElementById('monthNext').style.visibility = (availableMonths.length > 1 && idx > 0) ? 'visible' : 'hidden';
+
+    const daysInMonth = new Date(year, mIdx + 1, 0).getDate();
+    const now = new Date();
+    // The current month stops at today. Plotting the rest of it as zeros would draw a cliff to the
+    // right edge and drag the "average per day" down with days that have not happened yet.
+    const isCurrentMonth = now.getFullYear() === year && now.getMonth() === mIdx;
+    const lastDay = isCurrentMonth ? now.getDate() : daysInMonth;
+
+    const byDate = {};
+    (data.days || []).forEach(d => { byDate[d.date] = d; });
+
+    const series = [];
+    for (let d = 1; d <= lastDay; d++) {
+        const iso = year + '-' + String(mIdx + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        const rec = byDate[iso] || { completed: 0, failed: 0 };
+        series.push({ day: d, iso: iso, completed: rec.completed, failed: rec.failed });
+    }
+
+    const total = series.reduce((a, s) => a + s.completed, 0);
+    const activeDays = series.filter(s => s.completed > 0).length;
+    const peak = series.reduce((a, s) => Math.max(a, s.completed), 0);
+    const anyFailed = series.some(s => s.failed > 0);
+
+    document.getElementById('tpTotal').textContent = total.toLocaleString();
+    document.getElementById('tpAvg').textContent = activeDays ? Math.round(total / activeDays).toLocaleString() : '—';
+    document.getElementById('tpPeak').textContent = peak.toLocaleString();
+    document.getElementById('tpFailLegend').hidden = !anyFailed;
+
+    const svg = document.getElementById('tpChart');
+    if (!total && !anyFailed) {
+        svg.innerHTML = `<text class="tp-empty" x="${TP.W / 2}" y="${TP.H / 2}" text-anchor="middle">ยังไม่มีการประมวลผลในเดือนนี้</text>`;
+        document.getElementById('tpTip').hidden = true;
+        return;
+    }
+
+    const n = series.length;
+    const plotW = TP.W - TP.L - TP.R, plotH = TP.H - TP.T - TP.B;
+    const dataMax = Math.max(peak, series.reduce((a, s) => Math.max(a, s.failed), 0), 1);
+    const step = niceStep(dataMax / 5);
+    const yMax = Math.ceil(dataMax / step) * step;
+    const X = i => TP.L + (n === 1 ? plotW / 2 : i * plotW / (n - 1));
+    const Y = v => TP.T + plotH - (v / yMax) * plotH;
+    const baseY = Y(0);
+
+    let g = '';
+    for (let val = 0; val <= yMax + 1e-9; val += step) {
+        const yy = Y(val);
+        g += `<line class="tp-grid" x1="${TP.L}" y1="${yy}" x2="${TP.L + plotW}" y2="${yy}"/>`;
+        g += `<text class="tp-axis" x="${TP.L - 10}" y="${yy + 4}" text-anchor="end">${val.toLocaleString()}</text>`;
+    }
+
+    let xLabels = '';
+    series.forEach((s, i) => {
+        if (s.day === 1 || s.day % 5 === 0 || s.day === lastDay) {
+            xLabels += `<text class="tp-axis" x="${X(i)}" y="${TP.H - 12}" text-anchor="middle">${s.day}</text>`;
+        }
+    });
+
+    const pts = series.map((s, i) => X(i) + ',' + Y(s.completed));
+    const area = `M ${X(0)},${baseY} L ${pts.join(' L ')} L ${X(n - 1)},${baseY} Z`;
+    const failPts = series.map((s, i) => X(i) + ',' + Y(s.failed)).join(' ');
+    const dots = series.map((s, i) => s.completed > 0
+        ? `<circle class="tp-dot" cx="${X(i)}" cy="${Y(s.completed)}" r="3"/>` : '').join('');
+
+    svg.innerHTML = `
+        <defs>
+            <linearGradient id="tpGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.30"/>
+                <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+            </linearGradient>
+        </defs>
+        ${g}${xLabels}
+        <path d="${area}" fill="url(#tpGrad)"/>
+        ${anyFailed ? `<polyline class="tp-fail" points="${failPts}"/>` : ''}
+        <polyline class="tp-line" points="${pts.join(' ')}"/>
+        ${dots}
+        <line class="tp-guide" id="tpGuide" y1="${TP.T}" y2="${baseY}" style="display:none"/>
+        <circle class="tp-dot" id="tpHover" r="5.5" style="display:none"/>
+        <rect class="tp-hit" x="${TP.L}" y="${TP.T}" width="${plotW}" height="${plotH}"/>
+    `;
+
+    attachThroughputHover(svg, series, X, Y, n);
+}
+
+function attachThroughputHover(svg, series, X, Y, n) {
+    const tip = document.getElementById('tpTip');
+    const guide = document.getElementById('tpGuide');
+    const hover = document.getElementById('tpHover');
+    const hit = svg.querySelector('.tp-hit');
+    const plotW = TP.W - TP.L - TP.R;
+
+    hit.addEventListener('mousemove', ev => {
+        const r = svg.getBoundingClientRect();
+        // Pointer pixels -> viewBox units. The SVG scales with the window, so the ratio has to be
+        // read live rather than assumed to be 1:1.
+        const vx = (ev.clientX - r.left) / r.width * TP.W;
+        let i = n === 1 ? 0 : Math.round((vx - TP.L) / (plotW / (n - 1)));
+        i = Math.max(0, Math.min(n - 1, i));
+        const s = series[i];
+
+        guide.setAttribute('x1', X(i));
+        guide.setAttribute('x2', X(i));
+        guide.style.display = '';
+        hover.setAttribute('cx', X(i));
+        hover.setAttribute('cy', Y(s.completed));
+        hover.style.display = '';
+
+        const dt = new Date(s.iso + 'T00:00:00');
+        tip.innerHTML = `<div class="d">${dt.toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short' })}</div>`
+            + `<div><span class="n">${s.completed.toLocaleString()}</span> สายวิเคราะห์สำเร็จ</div>`
+            + (s.failed > 0 ? `<div><span class="n">${s.failed.toLocaleString()}</span> ล้มเหลว</div>` : '');
+        tip.hidden = false;
+
+        const px = X(i) / TP.W * r.width;
+        const py = Y(s.completed) / TP.H * r.height;
+        tip.style.left = Math.max(60, Math.min(r.width - 60, px)) + 'px';
+        tip.style.top = Math.max(tip.offsetHeight, py - 12) + 'px';
+    });
+
+    hit.addEventListener('mouseleave', () => {
+        tip.hidden = true;
+        guide.style.display = 'none';
+        hover.style.display = 'none';
+    });
 }
 
 function setupHeatmapCompanySelector(companies) {

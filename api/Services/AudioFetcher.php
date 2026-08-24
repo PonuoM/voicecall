@@ -1,6 +1,8 @@
 <?php
 
 require_once __DIR__ . '/AudioDecoder.php';
+require_once __DIR__ . '/AudioUnavailable.php';
+require_once __DIR__ . '/CircuitBreaker.php';
 
 /**
  * Gets a conversation's audio onto local disk as decoded PCM WAV, ready for Whisper (which
@@ -40,49 +42,27 @@ class AudioFetcher
      * batch, and escalating the cooldown on repeat trips stops a too-short wait from just
      * re-triggering it immediately.
      */
-    private const CIRCUIT_FILE_NAME = 'drive_circuit_breaker.json';
+    private const CIRCUIT = 'drive';
+    // Escalating: a Drive block announces no length, and the retrying is itself part of what
+    // provokes it, so each repeat trip should wait longer than the last.
     private const CIRCUIT_BASE_COOLDOWN_SECONDS = 1200; // 20 minutes
     private const CIRCUIT_MAX_COOLDOWN_SECONDS = 14400;  // 4 hours
 
     /** @return int|null Unix timestamp the block lifts at, or null if Drive is not currently blocked. */
     public static function driveCircuitOpen(): ?int
     {
-        $state = self::readCircuitState();
-        if ($state && (int) $state['blocked_until'] > time()) {
-            return (int) $state['blocked_until'];
-        }
-        return null;
-    }
-
-    private static function readCircuitState(): ?array
-    {
-        $path = LOG_DIR . '/' . self::CIRCUIT_FILE_NAME;
-        if (!is_file($path)) {
-            return null;
-        }
-        $data = json_decode((string) file_get_contents($path), true);
-        return is_array($data) ? $data : null;
+        return CircuitBreaker::openUntil(self::CIRCUIT);
     }
 
     private static function tripDriveCircuit(): void
     {
-        $state = self::readCircuitState() ?: ['consecutive_blocks' => 0];
-        $blocks = ((int) ($state['consecutive_blocks'] ?? 0)) + 1;
-        $cooldown = min(self::CIRCUIT_MAX_COOLDOWN_SECONDS, self::CIRCUIT_BASE_COOLDOWN_SECONDS * (2 ** ($blocks - 1)));
-        file_put_contents(LOG_DIR . '/' . self::CIRCUIT_FILE_NAME, json_encode([
-            'consecutive_blocks' => $blocks,
-            'blocked_until' => time() + $cooldown,
-            'tripped_at' => date('Y-m-d H:i:s'),
-        ]));
+        CircuitBreaker::trip(self::CIRCUIT, self::CIRCUIT_BASE_COOLDOWN_SECONDS, self::CIRCUIT_MAX_COOLDOWN_SECONDS);
     }
 
     /** A real success means whatever block existed has lifted - future trips restart the backoff ladder. */
     private static function resetDriveCircuit(): void
     {
-        $path = LOG_DIR . '/' . self::CIRCUIT_FILE_NAME;
-        if (is_file($path)) {
-            @unlink($path);
-        }
+        CircuitBreaker::reset(self::CIRCUIT);
     }
 
     /**
@@ -107,41 +87,205 @@ class AudioFetcher
     }
 
     /**
+     * Downloads authenticate as a service account. GDRIVE_API_KEY does not authenticate anything -
+     * it names the billing project and nothing else - so "?key=" against a link-shared folder is
+     * anonymous public traffic as far as Drive is concerned, and anonymous download traffic is
+     * policed per source IP by the abuse system that serves the HTML "Sorry" interstitial.
+     *
+     * That ceiling is low, and it was the entire outage. Measured on 19 Aug 2026, prima49 got
+     * 11-36 downloads through, then every subsequent one came back as the interstitial for four
+     * hours - four times across one day, starting 03:30, 07:53, 12:12 and 16:35. What proves the IP
+     * rather than the key or the files was at fault: the exact file that had just failed downloaded
+     * fine from a different machine using the same API key, and files.list from prima49 itself kept
+     * succeeding throughout the block (17:01:36, thirteen seconds, clean) because listing is not
+     * what the download abuse system counts.
+     *
+     * A bearer token attributes the request to a real principal, which moves it out of the
+     * anonymous per-IP pool and onto the project's own Drive quota. GDRIVE_API_KEY stays as a
+     * fallback purely so that a missing credential file degrades to the old behaviour rather than
+     * stopping the pipeline dead.
+     */
+    private const TOKEN_CACHE_FILE = 'drive_access_token.json';
+    private const TOKEN_REFRESH_MARGIN_SECONDS = 300;
+
+    /** @var string|null Per-process memo, so a batch of downloads signs one JWT rather than one each. */
+    private static $accessToken = null;
+
+    private static function serviceAccountPath(): string
+    {
+        $configured = getenv('GDRIVE_SERVICE_ACCOUNT_JSON');
+        return ($configured !== false && $configured !== '')
+            ? $configured
+            : __DIR__ . '/../certs/gdrive-service-account.json';
+    }
+
+    private static function caBundlePath(): string
+    {
+        return __DIR__ . '/../certs/cacert.pem';
+    }
+
+    private static function base64Url(string $raw): string
+    {
+        return str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($raw));
+    }
+
+    /** Drops the cached token so the next call signs a fresh assertion. */
+    private static function forgetAccessToken(): void
+    {
+        self::$accessToken = null;
+        $path = LOG_DIR . '/' . self::TOKEN_CACHE_FILE;
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    /**
+     * @return string|null A Drive access token, or null when no service account is configured (the
+     *   caller then falls back to GDRIVE_API_KEY).
+     */
+    private static function driveAccessToken(): ?string
+    {
+        if (self::$accessToken !== null) {
+            return self::$accessToken;
+        }
+
+        $keyPath = self::serviceAccountPath();
+        if (!is_file($keyPath)) {
+            return null;
+        }
+
+        // Tokens last an hour and every caller in every process can share one, so the exchange is
+        // worth caching on disk rather than per process - a backlog run that downloads 300 files
+        // would otherwise sign 300 assertions for no reason. LOG_DIR is already the one directory
+        // the web server is told to refuse (api/logs/.htaccess), which is what makes it a safe
+        // place to park a bearer token.
+        $cachePath = LOG_DIR . '/' . self::TOKEN_CACHE_FILE;
+        if (is_file($cachePath)) {
+            $cached = json_decode((string) file_get_contents($cachePath), true);
+            if (is_array($cached) && !empty($cached['token']) && !empty($cached['expires_at'])
+                && (int) $cached['expires_at'] - time() > self::TOKEN_REFRESH_MARGIN_SECONDS) {
+                self::$accessToken = (string) $cached['token'];
+                return self::$accessToken;
+            }
+        }
+
+        $json = json_decode((string) file_get_contents($keyPath), true);
+        if (!is_array($json) || empty($json['private_key']) || empty($json['client_email'])) {
+            throw new RuntimeException("Invalid Drive service account JSON at {$keyPath}");
+        }
+
+        $now = time();
+        $header = self::base64Url((string) json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
+        // drive.readonly, not drive: this credential exists to fetch recordings. Nothing in this
+        // pipeline writes to Drive, and the folder is shared to the service account as Editor, so
+        // the scope is the only thing standing between a bug here and a modified source recording.
+        $claim = self::base64Url((string) json_encode([
+            'iss' => $json['client_email'],
+            'scope' => 'https://www.googleapis.com/auth/drive.readonly',
+            'aud' => 'https://oauth2.googleapis.com/token',
+            'exp' => $now + 3600,
+            'iat' => $now,
+        ]));
+
+        $signature = '';
+        if (!openssl_sign($header . '.' . $claim, $signature, $json['private_key'], 'sha256')) {
+            throw new RuntimeException('Could not sign the Drive service account assertion');
+        }
+        $assertion = $header . '.' . $claim . '.' . self::base64Url($signature);
+
+        $ch = curl_init('https://oauth2.googleapis.com/token');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                'assertion' => $assertion,
+            ]),
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_CAINFO => self::caBundlePath(),
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $body = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $decoded = json_decode((string) $body, true);
+        if ($body === false || $httpCode !== 200 || empty($decoded['access_token'])) {
+            // Google being unreachable is not this recording's fault, so it must not burn the row.
+            throw new AudioUnavailable(
+                'Could not get a Drive access token (HTTP ' . $httpCode . ($curlError ? ", curl: {$curlError}" : '') . ')'
+            );
+        }
+
+        $expiresAt = time() + (int) ($decoded['expires_in'] ?? 3600);
+        @file_put_contents($cachePath, (string) json_encode([
+            'token' => $decoded['access_token'],
+            'expires_at' => $expiresAt,
+        ]));
+        @chmod($cachePath, 0600);
+
+        self::$accessToken = (string) $decoded['access_token'];
+        return self::$accessToken;
+    }
+
+    /**
      * Drive answers a throttle two different ways, and only one of them is JSON.
      *
-     * Ordinary quota rejections come back as a JSON error body. Once abuse detection trips for the
-     * whole IP — which took 45 downloads in quick succession while assembling a test corpus — the
-     * response is a plain HTML "Sorry..." page instead, and it outlasts any backoff measured in
-     * seconds. A permission failure looks nothing like either and must not be retried at all, since
-     * waiting will never grant access.
+     * Ordinary quota rejections come back as a JSON error body and are worth waiting out. The HTML
+     * "Sorry..." interstitial is not: it is an IP-level block lasting hours, and retrying inside it
+     * is actively harmful. Across the 148 real failures on 18-19 Aug 2026, not one download ever
+     * recovered on a later attempt within the same ladder, while each failure spent 360 seconds and
+     * three extra requests telling Google that the same IP was still hammering it. So the
+     * interstitial now ends the attempt immediately, trips the breaker on everyone else's behalf,
+     * and hands the conversation back as retryable-later rather than failed.
      *
-     * Before this there was no retry of any kind: a single 403 ended the conversation as a failure,
-     * and the backlog drain will make far more Drive requests than the sampling worker ever did.
+     * A permission failure is the one thing here that waiting will never fix, so it stays a
+     * genuine, terminal failure.
      */
     private static function downloadFromDrive(string $fileId, int $attempts = 4): string
     {
-        if (!GDRIVE_API_KEY) {
-            throw new RuntimeException('GDRIVE_API_KEY is not configured');
-        }
-
         $blockedUntil = self::driveCircuitOpen();
         if ($blockedUntil !== null) {
+            throw new AudioUnavailable(
+                'Drive download deferred (abuse_interstitial cooldown until ' . date('H:i:s', $blockedUntil) . ')'
+            );
+        }
+
+        $token = self::driveAccessToken();
+        if ($token === null && !GDRIVE_API_KEY) {
             throw new RuntimeException(
-                'Drive download skipped (abuse_interstitial circuit breaker open until ' . date('H:i:s', $blockedUntil) . ')'
+                'No Drive credentials: neither ' . self::serviceAccountPath() . ' nor GDRIVE_API_KEY is available'
             );
         }
 
         self::throttleBeforeDownload();
 
-        $url = "https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media&key=" . GDRIVE_API_KEY;
+        $url = "https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media";
+        $headers = [];
+        if ($token !== null) {
+            $headers[] = 'Authorization: Bearer ' . $token;
+        } else {
+            $url .= '&key=' . GDRIVE_API_KEY;
+        }
+
         $lastMessage = 'unknown error';
+        $transient = true;
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_HTTPHEADER => $headers,
+                // Verification was off here while the URL carried nothing but an API key. It now
+                // carries a bearer token in a request header, and an unverified TLS peer would hand
+                // that token to whoever answered - so this uses the same CA bundle GdriveIndexer
+                // has been using against this exact host in production all along.
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_CAINFO => self::caBundlePath(),
                 CURLOPT_TIMEOUT => 180,
             ]);
             $data = curl_exec($ch);
@@ -154,29 +298,43 @@ class AudioFetcher
                 return $data;
             }
 
-            $reason = null;
             if ($data === false) {
                 $lastMessage = "curl: {$curlError}";
+                $transient = true;
                 $retryable = true;
             } else {
                 $reason = self::driveErrorReason((string) $data);
                 $lastMessage = "HTTP {$httpCode}" . ($reason ? " ({$reason})" : '');
+
+                if ($reason === 'abuse_interstitial') {
+                    self::tripDriveCircuit();
+                    throw new AudioUnavailable("Drive refused this server's IP ({$lastMessage}) for fileId={$fileId}");
+                }
+
+                // An expired or revoked token is self-healing, but only once the cached copy goes
+                // away - otherwise every caller for the next hour reuses the same dead token.
+                if ($httpCode === 401) {
+                    self::forgetAccessToken();
+                    throw new AudioUnavailable("Drive rejected the access token ({$lastMessage}) - cleared, next run re-authenticates");
+                }
+
+                $transient = $reason !== 'permission_denied';
                 $retryable = in_array($httpCode, [429, 500, 502, 503, 504], true)
-                    || ($httpCode === 403 && $reason !== 'permission_denied');
+                    || ($httpCode === 403 && $transient);
             }
 
             if (!$retryable || $attempt === $attempts) {
-                if ($reason === 'abuse_interstitial') {
-                    self::tripDriveCircuit();
-                }
                 break;
             }
-            // Minutes, not seconds. The interstitial is an IP-level cooldown; retrying at 2s/4s/8s
-            // just re-arms it.
+            // Minutes, not seconds. A quota rejection is measured in minutes; retrying at 2s/4s/8s
+            // just spends the allowance again without ever waiting long enough to get past it.
             $backoff = [30, 90, 240][min($attempt - 1, 2)];
             sleep($backoff);
         }
 
+        if ($transient) {
+            throw new AudioUnavailable("Drive download failed ({$lastMessage}) for fileId={$fileId}");
+        }
         throw new RuntimeException("Drive download failed ({$lastMessage}) for fileId={$fileId}");
     }
 

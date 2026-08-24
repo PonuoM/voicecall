@@ -2,6 +2,8 @@
 
 require_once __DIR__ . '/../Agents/SttAgent.php';
 require_once __DIR__ . '/../Services/AudioSkipped.php';
+require_once __DIR__ . '/../Services/AudioUnavailable.php';
+require_once __DIR__ . '/../Services/WorkDeferred.php';
 require_once __DIR__ . '/../Agents/UnifiedPipelineAgent.php';
 require_once __DIR__ . '/../Agents/KnowledgeIndexerAgent.php';
 
@@ -61,11 +63,58 @@ class ConversationPipeline
             $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
                 ->execute(['skipped', $e->getMessage(), $conversationId]);
             return ['ok' => true, 'conversation_id' => $conversationId, 'status' => 'skipped', 'reason' => $e->getMessage()];
+        } catch (WorkDeferred $e) {
+            // The opposite of AudioSkipped: nothing was decided about this recording, something
+            // outside it got in the way. Back to 'pending', because 'failed' is terminal - nothing
+            // in the system retries it - and using it for an obstacle that lifts in hours is what
+            // destroyed 148 conversations in the 18-19 Aug 2026 Drive IP block and another 1,509
+            // in the MiniMax quota exhaustion the same evening. AudioUnavailable is a subclass, so
+            // this one catch covers "could not fetch the audio" and "the provider fell over" alike.
+            // The message is still recorded so the reason is visible while the row waits.
+            $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
+                ->execute(['pending', $e->getMessage(), $conversationId]);
+            return ['ok' => false, 'conversation_id' => $conversationId, 'status' => 'deferred', 'error' => $e->getMessage()];
         } catch (Throwable $e) {
             $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
                 ->execute(['failed', $e->getMessage(), $conversationId]);
             file_put_contents(LOG_DIR . '/pipeline_error.log', date('Y-m-d H:i:s') . " conversation={$conversationId} " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
             return ['ok' => false, 'conversation_id' => $conversationId, 'status' => 'failed', 'error' => $e->getMessage()];
+        } finally {
+            // In a finally, not on the success path: a conversation that died at the analysis step
+            // spent every token the successful ones did, and the expensive outages are exactly the
+            // ones worth being able to price afterwards.
+            self::recordUsage($pdo, $conversationId, (int) ($conversation['company_id'] ?? 0));
+        }
+    }
+
+    /**
+     * Persists what the model providers reported spending on this conversation.
+     *
+     * Wrapped in its own try/catch because accounting must never be able to fail a conversation
+     * that otherwise finished: a missing llm_usage table on an environment that has not run
+     * migrations yet should cost a log line, not a recording.
+     */
+    private static function recordUsage(PDO $pdo, int $conversationId, int $companyId): void
+    {
+        try {
+            $rows = OpenRouterClient::takeUsage();
+            if (!$rows) {
+                return;
+            }
+            $stmt = $pdo->prepare('INSERT INTO llm_usage
+                (conversation_id, company_id, endpoint, model, calls, prompt_tokens, cached_tokens,
+                 completion_tokens, total_tokens, seconds)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            foreach ($rows as $r) {
+                $stmt->execute([
+                    $conversationId, $companyId ?: null, $r['endpoint'], $r['model'], $r['calls'],
+                    $r['prompt_tokens'], $r['cached_tokens'], $r['completion_tokens'],
+                    $r['total_tokens'], round($r['seconds'], 2),
+                ]);
+            }
+        } catch (Throwable $e) {
+            file_put_contents(LOG_DIR . '/usage_error.log',
+                date('Y-m-d H:i:s') . " conversation={$conversationId} " . $e->getMessage() . "\n", FILE_APPEND);
         }
     }
 

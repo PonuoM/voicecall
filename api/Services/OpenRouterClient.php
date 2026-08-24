@@ -1,5 +1,8 @@
 <?php
 
+require_once __DIR__ . '/WorkDeferred.php';
+require_once __DIR__ . '/CircuitBreaker.php';
+
 /**
  * Client for every AI capability the pipeline needs: chat completions (all text-reasoning agents),
  * speech-to-text, and embeddings.
@@ -44,6 +47,33 @@ class OpenRouterClient
             'model' => $model,
             'label' => parse_url($url, PHP_URL_HOST) ?: $prefix,
         ];
+    }
+
+    /**
+     * How long to leave the analysis provider alone once it says the quota is gone.
+     *
+     * Flat rather than escalating, unlike Drive's. A token plan refills on the provider's clock,
+     * not on ours, so doubling the wait after each refusal only guarantees sitting idle long after
+     * it came back — the 19 Aug 2026 exhaustion cleared itself in about two hours, and an
+     * escalating ladder would still have been waiting. Fifteen minutes costs at most one wasted
+     * transcription per quarter hour while the quota is out, and notices the refill within one.
+     */
+    private const QUOTA_COOLDOWN_SECONDS = 900;
+
+    /**
+     * @return int|null Unix timestamp the analysis provider's cooldown ends, or null if it is
+     *   usable. Read by the cron workers before they claim a recording — the download and the
+     *   transcription are wasted if the analysis call at the end of the pipeline cannot run.
+     */
+    public static function analysisCircuitOpen(): ?int
+    {
+        return CircuitBreaker::openUntil(self::endpoint('LLM', OPENROUTER_MODEL)['label']);
+    }
+
+    /** Why it is closed — "out of quota" and "key rejected" need different reactions from a human. */
+    public static function analysisCircuitReason(): string
+    {
+        return CircuitBreaker::reasonFor(self::endpoint('LLM', OPENROUTER_MODEL)['label']);
     }
     /**
      * The model to use for the calls that need more care than the default one — compliance
@@ -513,8 +543,50 @@ class OpenRouterClient
         return is_array($decoded) ? $decoded : [];
     }
 
+    /**
+     * Provider usage accumulated since the last takeUsage(), keyed by endpoint.
+     *
+     * Every response already carries a `usage` block and the pipeline used to drop it, which is
+     * why "what does one conversation cost" had to be answered on 19 Aug 2026 by hand-measuring a
+     * single call and multiplying. Keeping what we are already handed costs nothing.
+     *
+     * @var array<string,array>
+     */
+    private static $usage = [];
+
+    private static function recordUsage(array $endpoint, $decoded, float $seconds): void
+    {
+        $u = is_array($decoded) ? ($decoded['usage'] ?? null) : null;
+        if (!is_array($u)) {
+            return;
+        }
+        $label = $endpoint['label'];
+        if (!isset(self::$usage[$label])) {
+            self::$usage[$label] = [
+                'endpoint' => $label, 'model' => (string) ($endpoint['model'] ?? ''), 'calls' => 0,
+                'prompt_tokens' => 0, 'cached_tokens' => 0, 'completion_tokens' => 0,
+                'total_tokens' => 0, 'seconds' => 0.0,
+            ];
+        }
+        self::$usage[$label]['calls']++;
+        self::$usage[$label]['prompt_tokens'] += (int) ($u['prompt_tokens'] ?? 0);
+        self::$usage[$label]['cached_tokens'] += (int) ($u['prompt_tokens_details']['cached_tokens'] ?? 0);
+        self::$usage[$label]['completion_tokens'] += (int) ($u['completion_tokens'] ?? 0);
+        self::$usage[$label]['total_tokens'] += (int) ($u['total_tokens'] ?? 0);
+        self::$usage[$label]['seconds'] += $seconds;
+    }
+
+    /** Drains what has accumulated so far. The caller owns persisting it. */
+    public static function takeUsage(): array
+    {
+        $out = array_values(self::$usage);
+        self::$usage = [];
+        return $out;
+    }
+
     private static function request(array $endpoint, string $path, array $payload, int $timeoutSeconds = 120): array
     {
+        $startedAt = microtime(true);
         $ch = curl_init($endpoint['url'] . $path);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
@@ -538,22 +610,89 @@ class OpenRouterClient
         curl_close($ch);
 
         if ($body === false) {
-            throw new RuntimeException("{$endpoint['label']} request failed: {$curlError}");
+            // Timeout, DNS, connection refused. Nothing here says anything about the recording,
+            // and a 'failed' row would be a permanent verdict on a temporary network.
+            throw new WorkDeferred("{$endpoint['label']} request failed: {$curlError}");
         }
         $decoded = json_decode($body, true);
         if ($httpCode >= 400) {
             // MiniMax reports some failures as HTTP 200 with base_resp.status_code set, so the
             // status line alone is not the whole story — see the check below.
             $message = $decoded['error']['message'] ?? ($decoded['base_resp']['status_msg'] ?? $body);
-            throw new RuntimeException("{$endpoint['label']} API error ({$httpCode}): {$message}");
+            $error = "{$endpoint['label']} API error ({$httpCode}): {$message}";
+
+            if ($httpCode === 429) {
+                throw self::quotaExhausted($endpoint, $error);
+            }
+            // A rejected key is the operator's problem, not this recording's, so it must not burn
+            // the queue. "Waiting will not fix it" is true and still the wrong conclusion: at 200
+            // conversations an hour, the ten minutes between revoking a key and updating .env
+            // would destroy ~35 recordings for a config edit. Stop the run and say what is wrong.
+            if ($httpCode === 401 || $httpCode === 403) {
+                throw self::authRejected($endpoint, $error);
+            }
+            // What is left in the 4xx range is this code sending a bad request — a wrong model id,
+            // a malformed body. Waiting cannot fix those and retrying would loop forever, so they
+            // stay genuine failures. Everything else is worth trying again later: the two
+            // misclassifications do not cost the same, since deferring a genuine bug wastes a
+            // retry while failing a passing outage loses the recording, and on 19 Aug 2026 that
+            // difference was 1,509 recordings.
+            if (in_array($httpCode, [400, 404, 422], true)) {
+                throw new RuntimeException($error);
+            }
+            throw new WorkDeferred($error);
         }
 
         $status = $decoded['base_resp']['status_code'] ?? 0;
         if ($status !== 0) {
             $message = $decoded['base_resp']['status_msg'] ?? 'unknown error';
-            throw new RuntimeException("{$endpoint['label']} API error (base_resp {$status}): {$message}");
+            $error = "{$endpoint['label']} API error (base_resp {$status}): {$message}";
+            // MiniMax's in-band spellings of "slow down" (1002) and "you are out of quota" (1008).
+            // The same conditions HTTP 429 reports, on the endpoints that answer 200 instead.
+            if (in_array((int) $status, [1002, 1008], true)) {
+                throw self::quotaExhausted($endpoint, $error);
+            }
+            throw new RuntimeException($error);
         }
 
+        // Reaching here means this provider is answering normally, so whatever cooldown it was
+        // under has served its purpose.
+        CircuitBreaker::reset($endpoint['label']);
+        self::recordUsage($endpoint, $decoded, microtime(true) - $startedAt);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Records that this provider is out of quota and returns the exception to throw.
+     *
+     * The breaker matters more here than it does for Drive. By the time the analysis call is made
+     * the recording has already been downloaded and fully transcribed, so every conversation that
+     * walks into an exhausted quota throws away all of that work — 1,463 of them in the two hours
+     * of 19 Aug 2026 before anything noticed. Stopping the batch at the first refusal turns that
+     * into one wasted transcription per cooldown.
+     */
+    private static function quotaExhausted(array $endpoint, string $error): WorkDeferred
+    {
+        $until = CircuitBreaker::trip(
+            $endpoint['label'], self::QUOTA_COOLDOWN_SECONDS, self::QUOTA_COOLDOWN_SECONDS, 'โควตาเต็ม'
+        );
+        return new WorkDeferred($error . ' — พักการเรียกจนถึง ' . date('H:i:s', $until));
+    }
+
+    /**
+     * Auth failures get a much shorter cooldown than quota ones, for the opposite reason. A quota
+     * refills on the provider's schedule, so probing before then is guaranteed waste. A rejected
+     * key is fixed the moment a human edits the config, which can be any second — so the pipeline
+     * should stay within one probe of resuming. While the breaker is open nothing is claimed at
+     * all, so the whole cost of being wrong here is one transcription per five minutes.
+     */
+    private const AUTH_COOLDOWN_SECONDS = 300;
+
+    private static function authRejected(array $endpoint, string $error): WorkDeferred
+    {
+        $until = CircuitBreaker::trip(
+            $endpoint['label'], self::AUTH_COOLDOWN_SECONDS, self::AUTH_COOLDOWN_SECONDS, 'คีย์ถูกปฏิเสธ — ตรวจ LLM_API_KEY ใน .env'
+        );
+        return new WorkDeferred($error . ' — คีย์ถูกปฏิเสธ พักการเรียกจนถึง ' . date('H:i:s', $until));
     }
 }

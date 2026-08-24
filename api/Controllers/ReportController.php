@@ -10,6 +10,7 @@
  *
  *   GET report/summary?company_id=
  *   GET report/heatmap?company_id=&year=
+ *   GET report/throughput?company_id=&month=YYYY-MM
  */
 function handle_report(PDO $pdo, PDO $erp, array $currentUser, ?string $id): void
 {
@@ -25,8 +26,76 @@ function handle_report(PDO $pdo, PDO $erp, array $currentUser, ?string $id): voi
         report_heatmap($pdo, $currentUser);
         return;
     }
+    if ($id === 'throughput') {
+        report_throughput($pdo, $currentUser);
+        return;
+    }
 
     json_response(['ok' => false, 'error' => 'NOT_FOUND'], 404);
+}
+
+/**
+ * Daily throughput — how many recordings the pipeline actually got through on each day.
+ *
+ * Deliberately a different question from the heatmap above, which groups by call_date and answers
+ * "how much of the backlog is covered". This groups by updated_at and answers "how fast are we
+ * moving", and the two can look nothing alike: a single day of processing chews through calls
+ * recorded across eight different months. Coverage says where the gaps are; this says whether the
+ * gaps are closing, which is the only view that shows an outage as it happens. On 19 Aug 2026 the
+ * Drive IP block was invisible on the heatmap and unmistakable here - four short bursts of work
+ * separated by four-hour flat stretches.
+ *
+ * 'failed' rides along because a day is not a good day just because the count is high; a spike of
+ * failures next to a spike of completions is the shape of something going wrong.
+ */
+function report_throughput(PDO $pdo, array $currentUser): void
+{
+    $companyId = resolve_company_id($currentUser, $_GET['company_id'] ?? null);
+    if (!$companyId) {
+        json_response(['ok' => false, 'error' => 'VALIDATION', 'message' => 'company_id is required'], 422);
+    }
+
+    $months = fetch_all($pdo, "
+        SELECT DISTINCT DATE_FORMAT(updated_at, '%Y-%m') AS m
+        FROM conversations
+        WHERE company_id = ? AND status IN ('completed','failed') AND updated_at IS NOT NULL
+        ORDER BY m DESC
+    ", [$companyId]);
+    $availableMonths = array_map(function ($r) {
+        return $r['m'];
+    }, $months);
+
+    $month = (string) ($_GET['month'] ?? ($availableMonths[0] ?? date('Y-m')));
+    // Anything else would interpolate straight into DATE_FORMAT comparisons below.
+    if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) {
+        json_response(['ok' => false, 'error' => 'VALIDATION', 'message' => 'month must look like YYYY-MM'], 422);
+    }
+
+    $days = fetch_all($pdo, "
+        SELECT
+            DATE(updated_at) AS day,
+            SUM(status = 'completed') AS completed,
+            SUM(status = 'failed') AS failed
+        FROM conversations
+        WHERE company_id = ?
+          AND status IN ('completed','failed')
+          AND DATE_FORMAT(updated_at, '%Y-%m') = ?
+        GROUP BY DATE(updated_at)
+        ORDER BY day
+    ", [$companyId, $month]);
+
+    json_response([
+        'ok' => true,
+        'month' => $month,
+        'available_months' => $availableMonths,
+        'days' => array_map(function ($r) {
+            return [
+                'date' => $r['day'],
+                'completed' => (int) $r['completed'],
+                'failed' => (int) $r['failed'],
+            ];
+        }, $days),
+    ]);
 }
 
 /**

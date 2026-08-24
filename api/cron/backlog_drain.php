@@ -190,6 +190,17 @@ foreach ($candidates as $cand) {
         break;
     }
 
+    // The analysis provider is checked here rather than at the analysis step for the same reason,
+    // only more so: by the time that step runs, this recording has already been downloaded from
+    // Drive and fully transcribed. Claiming one while the quota is out spends all of that to reach
+    // a refusal that was already known — 1,463 times over on the evening of 19 Aug 2026.
+    $analysisBlockedUntil = OpenRouterClient::analysisCircuitOpen();
+    if ($analysisBlockedUntil !== null) {
+        drain_log('Analysis provider unavailable (' . OpenRouterClient::analysisCircuitReason() . ') until '
+            . date('H:i:s', $analysisBlockedUntil) . ' — stopping this run early');
+        break;
+    }
+
     $companyId = (int) $cand['company_id'];
     $skipSet = $unknownSkipSets[$companyId];
     // Must go through UnknownNumberService::normalize(), not a hand-rolled digit-strip: Drive
@@ -236,6 +247,10 @@ foreach ($candidates as $cand) {
             drain_log("skipped conv {$conversationId}: {$label} — " . ($result['reason'] ?? ''));
         } elseif ($status === 'completed') {
             drain_log("completed conv {$conversationId}: {$label}");
+        } elseif ($status === 'deferred') {
+            // Back in the queue, not burnt. Logged distinctly because "FAILED" here would say the
+            // recording is a problem when the only problem was Drive being unreachable this minute.
+            drain_log("deferred conv {$conversationId}: {$label} — " . ($result['error'] ?? ''));
         } else {
             drain_log("FAILED conv {$conversationId}: {$label} — " . ($result['error'] ?? 'unknown'));
         }
@@ -247,7 +262,7 @@ foreach ($candidates as $cand) {
 
 $p = drain_progress($pdo);
 $done = (int) $p['completed'] + (int) $p['skipped'] + (int) $p['failed'];
-drain_log(sprintf('run done: completed=%d skipped=%d failed=%d | overall %s/%s (%.2f%%)',
-    $counts['completed'], $counts['skipped'], $counts['failed'],
+drain_log(sprintf('run done: completed=%d skipped=%d failed=%d deferred=%d | overall %s/%s (%.2f%%)',
+    $counts['completed'], $counts['skipped'], $counts['failed'], $counts['deferred'] ?? 0,
     number_format($done), number_format((int) $p['indexed']),
     $p['indexed'] ? $done / (int) $p['indexed'] * 100 : 0));

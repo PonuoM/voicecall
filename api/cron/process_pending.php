@@ -67,6 +67,15 @@ foreach ($rows as $row) {
         break;
     }
 
+    // Same guard for the far end of the pipeline: a recording claimed while the analysis quota is
+    // out pays for its download and transcription before hitting a refusal already on record.
+    $analysisBlockedUntil = OpenRouterClient::analysisCircuitOpen();
+    if ($analysisBlockedUntil !== null) {
+        echo 'Analysis provider unavailable (' . OpenRouterClient::analysisCircuitReason() . ') until '
+            . date('H:i:s', $analysisBlockedUntil) . " — stopping this run early.\n";
+        break;
+    }
+
     $id = (int) $row['id'];
     $size = $row['size_bytes'] !== null ? (int) $row['size_bytes'] : null;
 
@@ -95,7 +104,17 @@ foreach ($rows as $row) {
 
     echo "Conversation {$id} ({$row['call_code']}): processing... ";
     $result = ConversationPipeline::run($pdo, $erp, $id);
-    echo $result['ok'] ? "OK\n" : "FAILED: {$result['error']}\n";
+    if ($result['ok']) {
+        echo "OK\n";
+    } elseif (($result['status'] ?? '') === 'deferred') {
+        // The row went back to 'pending' rather than 'failed' - Drive was unreachable, which says
+        // nothing about this recording. Not counted as processed, because it still needs doing.
+        echo "DEFERRED: {$result['error']}\n";
+        $skipped++;
+        continue;
+    } else {
+        echo "FAILED: {$result['error']}\n";
+    }
     $processed++;
 }
 
