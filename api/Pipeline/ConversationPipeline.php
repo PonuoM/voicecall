@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Services/AudioUnavailable.php';
 require_once __DIR__ . '/../Services/WorkDeferred.php';
 require_once __DIR__ . '/../Agents/UnifiedPipelineAgent.php';
 require_once __DIR__ . '/../Agents/KnowledgeIndexerAgent.php';
+require_once __DIR__ . '/../Services/ErpWebhookService.php';
 
 /**
  * Runs the full 5-stage agent pipeline against one conversation, persisting status as it goes
@@ -55,7 +56,16 @@ class ConversationPipeline
 
             self::setStatus($pdo, $conversationId, 'completed');
 
-            return ['ok' => true, 'conversation_id' => $conversationId, 'status' => 'completed', 'transcript' => $transcript];
+            // The ERP is waiting on this call synchronously (ErpController) and also wants to be
+            // told out-of-band, so the webhook fires before the return either way.
+            ErpWebhookService::sendSummary($pdo, $conversationId);
+
+            require_once __DIR__ . '/../Services/ConversationDataService.php';
+            $detail = ConversationDataService::getFullDetail($pdo, $conversationId);
+            $detail['ok'] = true;
+            $detail['status'] = 'completed';
+
+            return $detail;
         } catch (AudioSkipped $e) {
             // A terminal state like any other: the recording has been dealt with and will not come
             // back round. Logged at a lower volume than a failure because on this corpus roughly a
@@ -78,6 +88,10 @@ class ConversationPipeline
             $pdo->prepare('UPDATE conversations SET status = ?, error_message = ? WHERE id = ?')
                 ->execute(['failed', $e->getMessage(), $conversationId]);
             file_put_contents(LOG_DIR . '/pipeline_error.log', date('Y-m-d H:i:s') . " conversation={$conversationId} " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
+            
+            // Notify ERP that the AI process failed
+            ErpWebhookService::sendError($pdo, $conversationId, 'PIPELINE_FAILED', $e->getMessage());
+
             return ['ok' => false, 'conversation_id' => $conversationId, 'status' => 'failed', 'error' => $e->getMessage()];
         } finally {
             // In a finally, not on the success path: a conversation that died at the analysis step

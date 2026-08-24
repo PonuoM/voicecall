@@ -69,6 +69,14 @@ try {
             handle_timeline($pdo, $currentUser);
             break;
 
+        // Auth for this one is not the bearer token every other resource uses - the caller is the
+        // ERP itself, not a browser, and ErpController checks ERP_API_KEY. bootstrap.php skips
+        // validate_auth() for exactly this resource.
+        case 'erp':
+            require_once __DIR__ . '/Controllers/ErpController.php';
+            handle_erp($pdo, erp(), $currentUser, $id, $action);
+            break;
+
         default:
             json_response(['ok' => false, 'error' => 'NOT_FOUND', 'message' => "Unknown resource '{$resource}'"], 404);
     }

@@ -348,7 +348,7 @@ class OpenRouterClient
             throw new RuntimeException("Audio file not found: {$audioFilePath}");
         }
 
-        $langHint = $language === 'th' ? ' The audio is a Thai business phone call.' : '';
+        $langHint = $language === 'th' ? ' The audio is a Thai phone call regarding e-commerce, order delivery, or customer service. Please accurately transcribe Thai language, slang, and numbers.' : '';
         $prompt = 'Transcribe this audio verbatim in the language spoken.' . $langHint
             . ' Put each speaker turn on its own line, in chronological order. Output only the'
             . ' transcription text, no commentary, no speaker labels, no timestamps.';
