@@ -227,10 +227,22 @@ foreach ($allGoogleFiles as $file) {
         $phones = $matches[0] ?? [];
         $callId = explode('-', $noDir)[0] ?? '';
         
+        $date = substr($dateStr, 0, 4) . '-' . substr($dateStr, 4, 2) . '-' . substr($dateStr, 6, 2);
+        $time = substr($timeStr, 0, 2) . ':' . substr($timeStr, 2, 2) . ':' . substr($timeStr, 4, 2);
+
+        // OneCall (numeric call ids) stamps UTC in the filename; old PBX (letter codes) already
+        // stamps Asia/Bangkok. Shift only OneCall so date/time in the response are Thailand time.
+        // Same rule as GdriveIndexer::parseFilename() and index.html parseWavFilename().
+        if (preg_match('/^[0-9]{7,12}$/', $callId)) {
+            $shifted = strtotime($date . ' ' . $time . ' +7 hours');
+            $date = date('Y-m-d', $shifted);
+            $time = date('H:i:s', $shifted);
+        }
+
         $parsed = [
             'id' => $callId,
-            'date' => substr($dateStr, 0, 4) . '-' . substr($dateStr, 4, 2) . '-' . substr($dateStr, 6, 2),
-            'time' => substr($timeStr, 0, 2) . ':' . substr($timeStr, 2, 2) . ':' . substr($timeStr, 4, 2),
+            'date' => $date,
+            'time' => $time,
             'caller' => $phones[0] ?? '',
             'receiver' => $phones[1] ?? '',
             'direction' => $direction
