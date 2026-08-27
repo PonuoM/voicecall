@@ -19,8 +19,25 @@
 -- `description` is the literal instruction handed to the model, so it is written to be unambiguous
 -- about *when* to flag rather than to read well.
 --
--- Idempotent: ON DUPLICATE KEY UPDATE refreshes the text, so re-applying after wording changes is
--- the intended way to edit these.
+-- Idempotent by DELETE-then-INSERT, not by ON DUPLICATE KEY UPDATE. compliance_rules has no
+-- unique key on (company_id, rule_name) -- only PRIMARY(id) -- so an upsert here would never
+-- match and every re-run would append another ten rows. That is not hypothetical: the one-shot
+-- bootstrap this migration replaces claimed to be idempotent on exactly that basis, so any host
+-- it was triggered on more than once already has duplicates. The DELETE below clears them out.
+--
+-- Deleting by rule_name is safe because these ten rows are seeded, never hand-edited: the
+-- supervisor UI edits severity and active, which this migration re-asserts anyway, and a rule
+-- someone renamed is a different rule that this will not touch.
+
+DELETE FROM compliance_rules
+WHERE company_id IN (1, 2)
+  AND rule_name IN (
+      'ห้ามก่นด่าคู่แข่ง',
+      'ห้ามด่า/เหยียดลูกค้า',
+      'ห้ามลดราคาทันทีเมื่อลูกค้าว่าแพง',
+      'ห้าม passive เมื่อลูกค้าบอกใช้ของคู่แข่ง',
+      'คำตอบสำคัญต้องมี Value + Question (Anti-Dead Air)'
+  );
 
 INSERT INTO compliance_rules
     (company_id, rule_name, category, description, rule_type, severity_default, active)
@@ -56,9 +73,4 @@ VALUES
     (2, 'คำตอบสำคัญต้องมี Value + Question (Anti-Dead Air)', 'communication_quality',
      'ทุกคำตอบที่เป็น "คำตอบสำคัญ" (เรื่องราคา, สินค้า, วันส่ง, โปรโมชั่น) ต้องไม่จบแค่ตอบคำถามอย่างเดียว ต้องมี 3 ส่วน: (1) Value/บริบทเสริม เช่น ขนาด ผลลัพธ์ หรือคุณสมบัติเด่น (2) Continue เชื่อมต่อด้วยประโยคเป็นมิตร (3) Question ปิดด้วยคำถามเชิงรุก เพื่อไม่ให้แชท/สายเงียบตาย ยกเว้น turn สุดท้ายของการสนทนา (closing) ไม่ต้องมี next step',
      'custom', 'medium', 1)
-ON DUPLICATE KEY UPDATE
-    category         = VALUES(category),
-    description      = VALUES(description),
-    rule_type        = VALUES(rule_type),
-    severity_default = VALUES(severity_default),
-    active           = 1;
+;
