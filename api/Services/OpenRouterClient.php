@@ -61,6 +61,26 @@ class OpenRouterClient
     private const QUOTA_COOLDOWN_SECONDS = 900;
 
     /**
+     * A rate limit is not a quota, and treating them alike cost most of this pipeline's throughput.
+     *
+     * MiniMax reports both as a refusal, but they mean opposite things: 1002 (and HTTP 429) is
+     * "you are going faster than your tier allows, retry shortly" and the vendor's own guidance is
+     * to back off and retry, while 1008 is "this account has no balance" and must not be retried
+     * at all. Both used to land in quotaExhausted(), so one burst above the per-minute allowance
+     * shut the entire worker run down for fifteen minutes and logged it as "โควตาเต็ม" — which is
+     * also why every diagnosis of the slowdown pointed at a token plan that was nowhere near spent.
+     *
+     * So a rate limit is now absorbed in-request first: RATE_LIMIT_RETRIES attempts with a growing
+     * pause between them, which is all most of them need. Only a limit that survives all of those
+     * opens the breaker, and then briefly and with an escalating ladder — the right shape for a
+     * limit whose length is unknown and partly provoked by the retrying itself.
+     */
+    private const RATE_LIMIT_RETRIES = 3;
+    private const RATE_LIMIT_BACKOFF_SECONDS = 4;
+    private const RATE_LIMIT_COOLDOWN_SECONDS = 60;
+    private const RATE_LIMIT_MAX_COOLDOWN_SECONDS = 600;
+
+    /**
      * @return int|null Unix timestamp the analysis provider's cooldown ends, or null if it is
      *   usable. Read by the cron workers before they claim a recording — the download and the
      *   transcription are wasted if the analysis call at the end of the pipeline cannot run.
@@ -586,6 +606,24 @@ class OpenRouterClient
 
     private static function request(array $endpoint, string $path, array $payload, int $timeoutSeconds = 120): array
     {
+        for ($attempt = 0; ; $attempt++) {
+            $result = self::attempt($endpoint, $path, $payload, $timeoutSeconds, $attempt);
+            if ($result !== null) {
+                return $result;
+            }
+            // attempt() returned null to say "rate limited, and retrying is still allowed".
+            sleep(self::RATE_LIMIT_BACKOFF_SECONDS * (2 ** $attempt));
+        }
+    }
+
+    /**
+     * One HTTP attempt.
+     *
+     * @return array|null The decoded response, or null meaning "rate limited, caller should back
+     *   off and call again". Every other outcome throws, so null is unambiguous.
+     */
+    private static function attempt(array $endpoint, string $path, array $payload, int $timeoutSeconds, int $attempt): ?array
+    {
         $startedAt = microtime(true);
         $ch = curl_init($endpoint['url'] . $path);
         curl_setopt_array($ch, [
@@ -621,8 +659,12 @@ class OpenRouterClient
             $message = $decoded['error']['message'] ?? ($decoded['base_resp']['status_msg'] ?? $body);
             $error = "{$endpoint['label']} API error ({$httpCode}): {$message}";
 
+            // 429 is the HTTP spelling of 1002 below: too fast, not out of credit.
             if ($httpCode === 429) {
-                throw self::quotaExhausted($endpoint, $error);
+                if ($attempt < self::RATE_LIMIT_RETRIES) {
+                    return null;
+                }
+                throw self::rateLimited($endpoint, $error);
             }
             // A rejected key is the operator's problem, not this recording's, so it must not burn
             // the queue. "Waiting will not fix it" is true and still the wrong conclusion: at 200
@@ -647,9 +689,17 @@ class OpenRouterClient
         if ($status !== 0) {
             $message = $decoded['base_resp']['status_msg'] ?? 'unknown error';
             $error = "{$endpoint['label']} API error (base_resp {$status}): {$message}";
-            // MiniMax's in-band spellings of "slow down" (1002) and "you are out of quota" (1008).
-            // The same conditions HTTP 429 reports, on the endpoints that answer 200 instead.
-            if (in_array((int) $status, [1002, 1008], true)) {
+            // MiniMax's in-band spellings, on the endpoints that answer HTTP 200 instead. These
+            // two used to share a branch; they need opposite reactions. 1002 says slow down and
+            // clears on its own; 1008 says the account has no balance and no amount of waiting
+            // fixes it, so it stops the run and names itself in the log.
+            if ((int) $status === 1002) {
+                if ($attempt < self::RATE_LIMIT_RETRIES) {
+                    return null;
+                }
+                throw self::rateLimited($endpoint, $error);
+            }
+            if ((int) $status === 1008) {
                 throw self::quotaExhausted($endpoint, $error);
             }
             throw new RuntimeException($error);
@@ -674,9 +724,27 @@ class OpenRouterClient
     private static function quotaExhausted(array $endpoint, string $error): WorkDeferred
     {
         $until = CircuitBreaker::trip(
-            $endpoint['label'], self::QUOTA_COOLDOWN_SECONDS, self::QUOTA_COOLDOWN_SECONDS, 'โควตาเต็ม'
+            $endpoint['label'], self::QUOTA_COOLDOWN_SECONDS, self::QUOTA_COOLDOWN_SECONDS,
+            'ยอดคงเหลือไม่พอ (1008) — ตรวจ balance/แพ็กเกจของคีย์ที่ใช้ ไม่ใช่แค่รอ'
         );
         return new WorkDeferred($error . ' — พักการเรียกจนถึง ' . date('H:i:s', $until));
+    }
+
+    /**
+     * A rate limit that survived every in-request retry.
+     *
+     * Escalating, unlike the quota's flat wait, and starting an order of magnitude shorter. The
+     * reason string says "rate limit" rather than "quota" because those send an operator to two
+     * different places — one to the concurrency of whatever else shares this key, the other to the
+     * billing page — and for weeks this said the wrong one.
+     */
+    private static function rateLimited(array $endpoint, string $error): WorkDeferred
+    {
+        $until = CircuitBreaker::trip(
+            $endpoint['label'], self::RATE_LIMIT_COOLDOWN_SECONDS, self::RATE_LIMIT_MAX_COOLDOWN_SECONDS,
+            'ถูกจำกัดอัตราการเรียก (429/1002) — ยังมีโควตาเหลือ แค่เรียกถี่เกินไป'
+        );
+        return new WorkDeferred($error . ' — เรียกถี่เกินไป พักถึง ' . date('H:i:s', $until));
     }
 
     /**
