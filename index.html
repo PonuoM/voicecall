@@ -1440,6 +1440,115 @@ function renderAiModalBody(data) {
             </div>`;
         }
     }
+
+    // Sales Score panel — moved up so it's the second most prominent thing on the modal
+    // (after Summary). Supervisors scan this first to decide which calls to drill into.
+    if (s && (s.sales_performance_score || s.sales_score_breakdown || s.lead_grade || s.coaching_recommendations || s.negative_talk_detected)) {
+        const score = s.sales_performance_score ? parseInt(s.sales_performance_score, 10) : null;
+        // 1=red, 2=orange, 3=yellow, 4=blue, 5=green — same visual language as the chip classes
+        // already used for sentiment + severity, so supervisors learn the colour-to-meaning once.
+        const scoreChip = { 1: 'crit', 2: 'high', 3: 'med', 4: 'info', 5: 'ok' };
+        const dimLabels = {
+            connect:  'เปิดสาย',
+            discover: 'ค้นหา Pain',
+            present:  'นำเสนอ',
+            handle:   'จัด Objection',
+            close:    'ปิด / นัดครั้งหน้า'
+        };
+        const leadChip = { hot: 'crit', warm: 'med', cold: 'neutral' };
+        const leadLabel = { hot: '🔥 พร้อมซื้อ', warm: '🌡️ ยังลังเล', cold: '❄️ แค่ส่อง' };
+
+        html += `<div style="margin-bottom:18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+                <div class="section-title" style="margin:0">คะแนนการขาย (Sales Performance)</div>
+                <div style="display:flex;align-items:center;gap:6px">
+                    ${score ? `<span class="chip ${scoreChip[score]||'neutral'}" style="font-size:14px;padding:4px 10px">คะแนนรวม <b style="margin-left:4px">${score}/5</b></span>` : '<span class="faint">-</span>'}
+                    ${s.lead_grade ? `<span class="chip ${leadChip[s.lead_grade]||'neutral'}">${escapeHtml(leadLabel[s.lead_grade]||s.lead_grade)}</span>` : ''}
+                </div>
+            </div>`;
+
+        // 5-dimension breakdown as horizontal bars — colour follows the score chip, so the
+        // weakest dimension jumps out at a glance without reading the number.
+        const breakdown = s.sales_score_breakdown || {};
+        const dimOrder = ['connect', 'discover', 'present', 'handle', 'close'];
+        html += '<div style="display:grid;gap:6px;margin-bottom:10px">';
+        for (const key of dimOrder) {
+            const dim = breakdown[key];
+            if (!dim || typeof dim !== 'object') continue;
+            const dimScore = parseInt(dim.score, 10);
+            const scoreClass = scoreChip[dimScore] || 'neutral';
+            const evidence = dim.evidence ? escapeHtml(dim.evidence) : '';
+            html += `<div style="display:flex;align-items:center;gap:10px;font-size:12px">
+                <div style="width:130px;color:var(--ink-dim)">${escapeHtml(dimLabels[key]||key)}</div>
+                <span class="chip ${scoreClass}" style="min-width:38px;text-align:center">${dimScore}/5</span>
+                <div style="flex:1;background:var(--sunken);border-radius:3px;height:6px;overflow:hidden">
+                    <div style="height:100%;width:${Math.max(0, Math.min(100, dimScore*20))}%;background:var(--${scoreClass},var(--ink-faint))"></div>
+                </div>
+                ${evidence ? `<div style="flex:2;font-size:11px;font-style:italic;color:var(--ink-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${evidence}">"${evidence}"</div>` : '<div style="flex:2"></div>'}
+            </div>`;
+        }
+        html += '</div>';
+
+        // One-sentence Thai rationale explaining the overall score
+        if (s.sales_score_rationale) {
+            html += `<div style="font-size:12px;color:var(--ink-dim);font-style:italic;margin-bottom:10px;padding:8px 10px;background:var(--sunken);border-radius:var(--radius-sm)">
+                ${escapeHtml(s.sales_score_rationale)}
+            </div>`;
+        }
+
+        // 5 buying forces + 6 resistances — what the agent tried vs what they actually reduced.
+        // Forces/resistances the agent DIDN'T touch are equally interesting (gaps to coach on).
+        const allForces = ['pain', 'desire', 'value', 'trust', 'urgency'];
+        const allResistances = ['price', 'risk', 'doubt', 'friction', 'comparison', 'delay'];
+        const forceLabels = { pain: 'เจ็บปวด', desire: 'อยากได้', value: 'คุ้มค่า', trust: 'เชื่อใจ', urgency: 'เร่งด่วน' };
+        const resistLabels = { price: 'แพง', risk: 'เสี่ยง', doubt: 'สงสัย', friction: 'ยุ่งยาก', comparison: 'เทียบเจ้าอื่น', delay: 'ขอคิดก่อน' };
+        const forces = s.sales_forces_present || [];
+        const resist = s.sales_resistances_addressed || [];
+
+        html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;font-size:11.5px;margin-bottom:10px">
+            <div>
+                <div class="faint" style="margin-bottom:4px">5 แรงซื้อที่ agent ใช้:</div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px">${allForces.map(f => {
+                    const active = forces.includes(f);
+                    return `<span class="chip ${active ? 'ok' : 'neutral'}" style="opacity:${active?1:0.45}">${forceLabels[f]}</span>`;
+                }).join('')}</div>
+            </div>
+            <div>
+                <div class="faint" style="margin-bottom:4px">แรงต้านที่ agent ลดได้:</div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px">${allResistances.map(r => {
+                    const active = resist.includes(r);
+                    return `<span class="chip ${active ? 'ok' : 'neutral'}" style="opacity:${active?1:0.45}">${resistLabels[r]}</span>`;
+                }).join('')}</div>
+            </div>
+        </div>`;
+
+        // Coaching recommendations — concrete Thai tips, not generic advice.
+        const coaching = s.coaching_recommendations || [];
+        if (coaching.length) {
+            html += `<div style="margin-bottom:10px">
+                <div class="faint" style="font-size:11.5px;margin-bottom:4px">📈 สิ่งที่ควรโค้ช:</div>
+                <ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.5">
+                    ${coaching.map(t => `<li>${escapeHtml(t)}</li>`).join('')}
+                </ul>
+            </div>`;
+        }
+
+        // Negative-talk box — only shown when the model actually flagged it. The colour and the
+        // "verbatim quote" presentation is intentional: supervisors should be able to verify the
+        // flag in 5 seconds without re-listening to the call.
+        if (s.negative_talk_detected) {
+            const examples = s.negative_talk_examples || [];
+            html += `<div class="case-evidence" style="border-left-color:var(--crit);background:rgba(220,38,38,0.06)">
+                <span class="chip crit">⚠️ Negative Talk</span>
+                <span class="b" style="margin-left:4px;color:var(--crit)">พบการพูดในแง่ลบเกี่ยวกับลูกค้า/แบรนด์อื่น</span>
+                ${examples.length ? `<div style="margin-top:6px;font-size:11.5px;font-style:italic;color:var(--crit)">
+                    ${examples.map(q => `<div style="margin:2px 0">"${escapeHtml(q)}"</div>`).join('')}
+                </div>` : ''}
+            </div>`;
+        }
+        html += '</div>';
+    }
+
     html += `<div style="margin-bottom:18px">
         <div class="section-title">ตรวจสอบ Compliance</div>
         ${cr ? `<span class="chip ${cr.overall_status==='compliant'?'ok':'crit'}">${escapeHtml(cr.overall_status)}</span>` : '<span class="faint">-</span>'}

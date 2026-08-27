@@ -33,7 +33,7 @@ class ConversationDataService
         $fraudChecks = fetch_all($pdo, "SELECT * FROM fraud_checks WHERE conversation_id = ? ORDER BY FIELD(risk_level,'critical','high','medium','low')", [$conversationId]);
 
         if ($summary) {
-            foreach (['key_topics', 'action_items', 'decisions_made', 'follow_up_tasks', 'important_keywords'] as $field) {
+            foreach (['key_topics', 'action_items', 'decisions_made', 'follow_up_tasks', 'important_keywords', 'sales_score_breakdown', 'coaching_recommendations', 'negative_talk_examples', 'sales_forces_present', 'sales_resistances_addressed'] as $field) {
                 if (isset($summary[$field])) {
                     $summary[$field] = json_decode($summary[$field], true);
                 }

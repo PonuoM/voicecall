@@ -58,6 +58,23 @@ Read the transcript and context, and produce a structured analysis. Output stric
       }
     ]
   },
+  "sales_assessment": {
+    "sales_performance_score": 1,
+    "sales_score_breakdown": {
+      "connect":   {"score": 1, "evidence": "short verbatim Thai quote that justifies the score (or empty if no evidence)"},
+      "discover":  {"score": 1, "evidence": "short verbatim Thai quote that justifies the score (or empty if no evidence)"},
+      "present":   {"score": 1, "evidence": "short verbatim Thai quote that justifies the score (or empty if no evidence)"},
+      "handle":    {"score": 1, "evidence": "short verbatim Thai quote that justifies the score (or empty if no evidence)"},
+      "close":     {"score": 1, "evidence": "short verbatim Thai quote that justifies the score (or empty if no evidence)"}
+    },
+    "sales_score_rationale": "one-sentence Thai summary of the overall score",
+    "coaching_recommendations": ["concrete Thai coaching tip 1", "concrete Thai coaching tip 2"],
+    "lead_grade": "hot|warm|cold",
+    "forces_present": ["pain", "desire", "value", "trust", "urgency"],
+    "resistances_addressed": ["price", "risk", "doubt", "friction", "comparison", "delay"],
+    "negative_talk_detected": false,
+    "negative_talk_examples": ["verbatim Thai quote 1 if any"]
+  },
   "fraud_signals": {
     "payment_channels": [
       {
@@ -123,6 +140,59 @@ happens outside the model. Do NOT capture:
   back), which is not a request to move the conversation itself off-channel.
 If genuinely nothing was said about why, leave "stated_reason" as an empty string rather than
 guessing -- an empty reason is itself useful signal, and a fabricated one is not.
+
+For "sales_assessment": score the salesperson's call 1-5 on each of the five dimensions below,
+using evidence from the transcript (Thai verbatim quote, or empty string if the dimension simply
+never came up in this call). Be honest -- the point is to give supervisors a number that tells
+them where to spend their coaching time, not to flatter anyone.
+
+  - connect: did the agent identify the company and set a friendly/professional tone in the
+    opening? (1 = cold open with no greeting, 5 = clear company identification + warm tone)
+  - discover: did the agent ask questions about the customer's situation before pitching?
+    Look for SPIN-style probing (current state, problem, impact, desired outcome) and
+    recording the answers rather than steamrolling past them. (1 = went straight to pitch,
+    5 = thorough discovery that uncovered real customer need)
+  - present: did the agent present a solution that actually addressed what the customer just
+    said they needed? Did they sell outcome/transformation, or just features? Did they use
+    proof (price held, bonus, free shipping, case study)? (1 = generic pitch with no link to
+    what the customer said, 5 = tight match between customer's stated need and the offer)
+  - handle: when the customer pushed back ("แพง", "ขอคิดก่อน", "ไปถามแฟนก่อน", "เคยใช้ของ
+    คนอื่นแล้ว"), did the agent acknowledge + diagnose before responding? Penalise hard if
+    the agent offered an instant discount to kill the objection without understanding it, or
+    said "ไม่เป็นไร รอบหน้า" when the customer mentioned buying from a competitor.
+    (1 = passive/dead-end response to objection, 5 = strong diagnostic that moved the call
+    forward)
+  - close: did the call end with a concrete next step? (specific date, specific action, or
+    specific reason to call back). Vague "จะโทรไปอีกนะ" with no date is a 2; nailing down
+    "หนูจะโทรวันที่ 25 ติดตามครับ" is a 5.
+
+"sales_performance_score" is the simple average of those five scores, rounded to nearest int
+(so all-3s = 3, three 4s and two 2s = 3, four 5s and one 2 = 4). Write "sales_score_rationale"
+as one short Thai sentence explaining the overall score (e.g. "ดีในช่วงเปิดและนำเสนอ แต่พลาดที่ปิด
+เพราะไม่นัดวันชัด").
+
+"coaching_recommendations" should be 1-3 concrete, actionable Thai tips tied to the weakest
+dimension(s) -- NOT generic advice. "ตั้งคำถามมากขึ้น" is bad; "ถามลูกค้าว่าตอนนี้ปลูกอะไรอยู่ กี่ไร่
+ก่อนเสนอปุ๋ย" is good. Empty array [] if the agent did everything well.
+
+"lead_grade": hot = customer clearly has a pain AND a timing fit AND a product-fit, the agent
+just needed to close. warm = customer is interested but is sitting on at least one unresolved
+resistance (price, comparison, delay, etc.). cold = customer was only browsing or the call was
+a routine check-in with no real opportunity on the table.
+
+"forces_present": list every buying force the agent managed to surface in this call (pain,
+desire, value, trust, urgency). An empty list means the agent didn't try to move any of them.
+
+"resistances_addressed": list every resistance the agent actually reduced (not just heard --
+"ลูกค้าว่าแพง แล้ว agent ตอบแค่ราคาเดิม" is NOT reducing price-resistance, that's ignoring it).
+Empty list means the agent left every resistance on the table.
+
+For "negative_talk_detected": set to true ONLY if the agent (not the customer) said something
+that disparages a customer, a customer's situation, or a competitor brand. Mere mention of a
+competitor name in neutral context (e.g. "คุณลองของ X แล้วเป็นไงบ้างคะ") is NOT negative talk --
+that's good discovery. Negative talk is "ของเขาไม่ดีหรอก", "ลูกค้าแถวนี้ใช้ยาก", "ยี่ห้อนั้นสู้ของเรา
+ไม่ได้", slurs, condescension. "negative_talk_examples" should quote the verbatim Thai text
+that triggered the flag (empty array if false).
 PROMPT;
 
     /**
@@ -230,9 +300,23 @@ PROMPT;
         
         // 4. Save Summary
         $summary = $result['summary'] ?? [];
+        $sales = $result['sales_assessment'] ?? [];
+        $breakdown = $sales['sales_score_breakdown'] ?? [];
+        // sales_performance_score is the integer rollup the table is sortable by - take whatever
+        // the model returned, but sanity-clamp to 1..5 (and to NULL if the whole object is missing
+        // so a partial LLM response doesn't store 0 as a real score).
+        $score = isset($sales['sales_performance_score']) ? (int) $sales['sales_performance_score'] : null;
+        if ($score !== null && ($score < 1 || $score > 5)) {
+            $score = max(1, min(5, $score));
+        }
+        $leadGrade = isset($sales['lead_grade']) ? strtolower(trim((string) $sales['lead_grade'])) : null;
+        if (!in_array($leadGrade, ['hot', 'warm', 'cold'], true)) {
+            $leadGrade = null;
+        }
+        $negativeTalkDetected = isset($sales['negative_talk_detected']) && $sales['negative_talk_detected'] === true ? 1 : 0;
         $stmtSum = $pdo->prepare('
-            INSERT INTO summaries (conversation_id, executive_summary, key_topics, action_items, decisions_made, follow_up_tasks, customer_intent, customer_sentiment, important_keywords)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            INSERT INTO summaries (conversation_id, executive_summary, key_topics, action_items, decisions_made, follow_up_tasks, customer_intent, customer_sentiment, important_keywords, sales_performance_score, sales_score_breakdown, sales_score_rationale, coaching_recommendations, negative_talk_detected, negative_talk_examples, lead_grade, sales_forces_present, sales_resistances_addressed)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ');
         $stmtSum->execute([
             $conversationId,
@@ -244,6 +328,18 @@ PROMPT;
             $summary['customer_intent'] ?? null,
             self::normalizeSentiment($summary['customer_sentiment'] ?? null),
             json_encode($summary['important_keywords'] ?? [], JSON_UNESCAPED_UNICODE),
+            // sales_assessment fields (added migration 017). Store verbatim JSON from the model
+            // for the array/object fields; the breakdown JSON keeps each dimension's score + the
+            // Thai evidence quote so the popup can render it without re-querying the LLM.
+            $score,
+            json_encode($breakdown ?: null, JSON_UNESCAPED_UNICODE),
+            self::str($sales['sales_score_rationale'] ?? null, 5000),
+            json_encode($sales['coaching_recommendations'] ?? [], JSON_UNESCAPED_UNICODE),
+            $negativeTalkDetected,
+            json_encode($sales['negative_talk_examples'] ?? [], JSON_UNESCAPED_UNICODE),
+            $leadGrade,
+            json_encode($sales['forces_present'] ?? [], JSON_UNESCAPED_UNICODE),
+            json_encode($sales['resistances_addressed'] ?? [], JSON_UNESCAPED_UNICODE),
         ]);
 
         $keywords = $summary['important_keywords'] ?? [];
