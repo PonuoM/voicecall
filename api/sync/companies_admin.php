@@ -13,29 +13,15 @@ if (!file_exists($envPath)) {
     echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
-$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
-
-$localDb = [
-    'host'     => $env['DB_HOST'] ?? 'localhost',
-    'database' => $env['DB_NAME'] ?? 'primacom_voicelog',
-    'username' => $env['DB_USER'] ?? 'root',
-    'password' => $env['DB_PASS'] ?? ''
-];
-
-$erpDb = [
-    'host'     => $env['ERP_DB_HOST'] ?? 'localhost',
-    'database' => $env['ERP_DB_NAME'] ?? 'primacom_mini_erp',
-    'username' => $env['ERP_DB_USER'] ?? 'root',
-    'password' => $env['ERP_DB_PASS'] ?? ''
-];
+// _auth.php already loaded api/config.php, which exposes db_connect()/erp_connect(). Use those
+// instead of rebuilding PDO from $env — they share one credential-handling path with the rest of
+// the codebase, so an empty `DB_PASS ?? ''` here can't silently downgrade the connection.
+$env = sync_env();
 
 try {
     // 1. Connect to both DBs
-    $pdoLocal = new PDO("mysql:host={$localDb['host']};dbname={$localDb['database']};charset=utf8mb4", $localDb['username'], $localDb['password']);
-    $pdoLocal->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
-    $pdoErp = new PDO("mysql:host={$erpDb['host']};dbname={$erpDb['database']};charset=utf8mb4", $erpDb['username'], $erpDb['password']);
-    $pdoErp->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdoLocal = db_connect();
+    $pdoErp = erp_connect();
 
     // 2. Auto-migrate table
     $pdoLocal->exec("

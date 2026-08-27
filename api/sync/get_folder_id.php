@@ -23,10 +23,23 @@ $folderId = $env[$envKey] ?? '';
 
 if ($folderId) {
     echo json_encode(['success' => true, 'folder_id' => trim($folderId)]);
-} else {
-    // Not found in .env, return a helpful error
-    echo json_encode([
-        'success' => false, 
-        'message' => "ไม่พบรหัสโฟลเดอร์สำหรับบริษัทนี้ กรุณาเพิ่ม $envKey ลงในไฟล์ .env ของโปรเจกต์"
-    ]);
+    exit;
 }
+
+// Company-specific folder ID is not configured. Fall back to the shared root folder so
+// single-tenant and dev setups (where each company's audio lives directly under the Drive
+// root) keep working without forcing every company to be listed in .env.
+$rootFallback = $env['GDRIVE_ROOT_FOLDER_ID'] ?? '';
+if ($rootFallback) {
+    echo json_encode([
+        'success' => true,
+        'folder_id' => trim($rootFallback),
+        'fallback' => 'GDRIVE_ROOT_FOLDER_ID',
+    ]);
+    exit;
+}
+
+echo json_encode([
+    'success' => false,
+    'message' => "ไม่พบรหัสโฟลเดอร์สำหรับบริษัทนี้ กรุณาเพิ่ม $envKey หรือ GDRIVE_ROOT_FOLDER_ID ลงในไฟล์ .env ของโปรเจกต์"
+]);

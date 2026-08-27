@@ -10,14 +10,8 @@ if (!file_exists($envPath)) {
     echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
-$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
-
-$localDb = [
-    'host'     => $env['DB_HOST'] ?? 'localhost',
-    'database' => $env['DB_NAME'] ?? 'primacom_voicelog',
-    'username' => $env['DB_USER'] ?? 'root',
-    'password' => $env['DB_PASS'] ?? ''
-];
+// _auth.php already loaded api/config.php → db_connect() handles credentials.
+$env = sync_env();
 
 $companyId = sync_company_id($syncUser, $_GET['company_id'] ?? null);
 
@@ -27,8 +21,7 @@ if (!$companyId) {
 }
 
 try {
-    $pdoLocal = new PDO("mysql:host={$localDb['host']};dbname={$localDb['database']};charset=utf8mb4", $localDb['username'], $localDb['password']);
-    $pdoLocal->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdoLocal = db_connect();
 
     // Ensure table exists (just in case this runs before admin visits the page)
     $pdoLocal->exec("

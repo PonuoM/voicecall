@@ -15,21 +15,8 @@ if (!file_exists($envPath)) {
     echo json_encode(['success' => false, 'message' => '.env file not found.']);
     exit;
 }
-$env = sync_env(); // not parse_ini_file(): PHP's ini parser chokes on this .env — see sync_env()
-
-$localDb = [
-    'host'     => $env['DB_HOST'] ?? 'localhost',
-    'database' => $env['DB_NAME'] ?? 'voicecall_ai',
-    'username' => $env['DB_USER'] ?? 'root',
-    'password' => $env['DB_PASS'] ?? ''
-];
-
-$erpDb = [
-    'host'     => $env['ERP_DB_HOST'] ?? 'localhost',
-    'database' => $env['ERP_DB_NAME'] ?? 'primacom_mini_erp',
-    'username' => $env['ERP_DB_USER'] ?? 'root',
-    'password' => $env['ERP_DB_PASS'] ?? ''
-];
+// _auth.php already loaded api/config.php → db_connect()/erp_connect() handle credentials.
+$env = sync_env();
 
     // $driveConfig removed, moved lower
 
@@ -56,8 +43,8 @@ $allowDuplicates = $isJson ? ($input['allow_duplicates'] ?? false) : ($_POST['al
 
 try {
     // 1. DB connections
-    $pdoLocal = new PDO("mysql:host={$localDb['host']};dbname={$localDb['database']};charset=utf8mb4", $localDb['username'], $localDb['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    $pdoErp = new PDO("mysql:host={$erpDb['host']};dbname={$erpDb['database']};charset=utf8mb4", $erpDb['username'], $erpDb['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdoLocal = db_connect();
+    $pdoErp = erp_connect();
 
     // Check if already indexed
     $stmt = $pdoLocal->prepare("SELECT id FROM gdrive_file_index WHERE company_id = ? AND call_code = ?");
