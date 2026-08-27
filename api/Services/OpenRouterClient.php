@@ -659,8 +659,19 @@ class OpenRouterClient
             $message = $decoded['error']['message'] ?? ($decoded['base_resp']['status_msg'] ?? $body);
             $error = "{$endpoint['label']} API error ({$httpCode}): {$message}";
 
-            // 429 is the HTTP spelling of 1002 below: too fast, not out of credit.
+            // 429 is usually the HTTP spelling of 1002 below - too fast, not out of credit - but
+            // MiniMax also returns it for a genuinely spent token plan, and the two need the
+            // opposite reaction. Observed verbatim on 19 Aug 2026:
+            //   "Token Plan usage limit reached: Upgrade your Token Plan or purchase Credits
+            //    for more usage. (2056)"
+            // That one refused everything for two hours and refilled on the provider's clock;
+            // retrying it four seconds later is pure waste, and a 60-second breaker would throw
+            // away one transcription a minute for the whole outage. So the body decides.
             if ($httpCode === 429) {
+                if (self::saysPlanExhausted($message)) {
+                    throw self::quotaExhausted($endpoint, $error,
+                        'โควตาแพ็กเกจหมด (429/2056) — ต้องอัปเกรดหรือรอรอบเติม ไม่ใช่แค่เรียกถี่เกินไป');
+                }
                 if ($attempt < self::RATE_LIMIT_RETRIES) {
                     return null;
                 }
@@ -700,7 +711,8 @@ class OpenRouterClient
                 throw self::rateLimited($endpoint, $error);
             }
             if ((int) $status === 1008) {
-                throw self::quotaExhausted($endpoint, $error);
+                throw self::quotaExhausted($endpoint, $error,
+                    'ยอดคงเหลือไม่พอ (1008) — ตรวจ balance/แพ็กเกจของคีย์ที่ใช้ ไม่ใช่แค่รอ');
             }
             throw new RuntimeException($error);
         }
@@ -721,13 +733,31 @@ class OpenRouterClient
      * of 19 Aug 2026 before anything noticed. Stopping the batch at the first refusal turns that
      * into one wasted transcription per cooldown.
      */
-    private static function quotaExhausted(array $endpoint, string $error): WorkDeferred
+    private static function quotaExhausted(array $endpoint, string $error, string $reason): WorkDeferred
     {
         $until = CircuitBreaker::trip(
-            $endpoint['label'], self::QUOTA_COOLDOWN_SECONDS, self::QUOTA_COOLDOWN_SECONDS,
-            'ยอดคงเหลือไม่พอ (1008) — ตรวจ balance/แพ็กเกจของคีย์ที่ใช้ ไม่ใช่แค่รอ'
+            $endpoint['label'], self::QUOTA_COOLDOWN_SECONDS, self::QUOTA_COOLDOWN_SECONDS, $reason
         );
         return new WorkDeferred($error . ' — พักการเรียกจนถึง ' . date('H:i:s', $until));
+    }
+
+    /**
+     * Does this refusal mean "the plan is spent" rather than "you are going too fast"?
+     *
+     * Matched on the text because the distinguishing code (2056) arrives inside the message rather
+     * than in any structured field, and because the wording is the part an operator will recognise
+     * in a log. Deliberately narrow: anything not clearly about a plan or a balance falls through
+     * to the rate-limit path, where the cost of being wrong is a few seconds instead of fifteen
+     * idle minutes.
+     */
+    private static function saysPlanExhausted(string $message): bool
+    {
+        foreach (['2056', 'token plan', 'purchase credits', 'insufficient balance', 'out of credit'] as $marker) {
+            if (mb_stripos($message, $marker) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
