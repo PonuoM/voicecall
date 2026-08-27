@@ -127,6 +127,9 @@ host จริง), `.gitignore`, `DEPLOY.md`, `20260120-20260131/` (ข้อ�
 
 ## 🔄 Update Workflow (ครั้งต่อไป)
 
+👉 ขั้นตอน deploy ประจำแบบละเอียด (สคริปต์ FTP, migration, verify, rollback) อยู่ที่
+[FTP_DEPLOY.md](FTP_DEPLOY.md)
+
 ไม่มี build step — แก้ไฟล์ใน `api/`/`index.html`/`login.php`/`audio_proxy.php` แล้ว FTP
 เฉพาะไฟล์ที่เปลี่ยนทับของเดิมได้เลย ถ้ามี migration ใหม่ ค่อย import เพิ่มผ่าน phpMyAdmin
 (ไม่ต้อง re-import ของเก่า)
