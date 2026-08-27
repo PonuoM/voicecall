@@ -29,3 +29,17 @@ api/certs/gdrive-service-account.json
 
 # Billing exports pulled from provider dashboards for analysis — account data, not code.
 export_bill_*.csv
+
+# Deploy artifacts — these carry the prod FTP password and the one-shot bootstrap tokens
+# in plaintext. They are generated per-deploy and belong on the operator's machine, never in
+# history: a single `git add .` would publish the production credentials permanently.
+# The *content* they apply lives in migrations/ instead, which is what should be reviewed.
+deploy_*.sh
+bootstrap_*.php
+
+# Source material for the sales-scoring rubric: the course PDF (85MB) and the page-by-page
+# summary of it. Third-party paid course material, and the PDF alone is larger than the rest
+# of the repo combined. The rubric derived from it is in api/Agents/UnifiedPipelineAgent.php
+# and migrations/018; the source stays local.
+*.pdf
+the-new-buying-game-summary.md
