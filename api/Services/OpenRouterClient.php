@@ -295,16 +295,33 @@ class OpenRouterClient
         $curlError = curl_error($ch);
         curl_close($ch);
 
+        // Everything below classifies the same way request() does, and for the same reason. This
+        // transport used to throw plain RuntimeExceptions, which reach ConversationPipeline's
+        // catch (Throwable) and write status='failed' - terminal, retried by nothing. Conversations
+        // 5073, 12250 and 13314 were lost that way to "Failed connect to asr.prima49.com:443;
+        // Connection timed out", a transport hiccup that says nothing whatsoever about the
+        // recording, while the analysis path deferred the identical failure and kept its rows.
         if ($body === false) {
-            throw new RuntimeException("{$endpoint['label']} transcription failed: {$curlError}");
+            throw new WorkDeferred("{$endpoint['label']} transcription failed: {$curlError}");
         }
         $decoded = json_decode($body, true);
         if ($httpCode >= 400) {
             $message = $decoded['detail'] ?? ($decoded['error']['message'] ?? substr((string) $body, 0, 300));
-            throw new RuntimeException("{$endpoint['label']} transcription error ({$httpCode}): {$message}");
+            $error = "{$endpoint['label']} transcription error ({$httpCode}): {$message}";
+            // Same carve-out as request(): a wrong model id or a malformed request is this code's
+            // bug, waiting cannot fix it and retrying loops forever. Everything else - 401/403 on a
+            // rotated key, 429, and every 5xx a restarting service or its proxy emits - passes.
+            if (in_array($httpCode, [400, 404, 422], true)) {
+                throw new RuntimeException($error);
+            }
+            throw new WorkDeferred($error);
         }
         if (!is_array($decoded) || !array_key_exists('text', $decoded)) {
-            throw new RuntimeException("{$endpoint['label']} returned no transcript: " . substr((string) $body, 0, 300));
+            // A 2xx with no 'text' is not a property of this recording: a silent call comes back as
+            // text:"" and is handled as a skip upstream. An unparseable body is the shape a proxy
+            // returns mid-restart, so it follows WorkDeferred's own rule - when classification is
+            // uncertain, defer, because the two mistakes do not cost the same.
+            throw new WorkDeferred("{$endpoint['label']} returned no transcript: " . substr((string) $body, 0, 300));
         }
 
         return [
