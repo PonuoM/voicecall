@@ -84,8 +84,15 @@ function drain_log(string $msg): void
  */
 function host_mem_available(): string
 {
+    // Direct read first; on this host open_basedir fences PHP out of /proc (first live reading
+    // came back '-'), so fall back to reading it through a shell, which open_basedir does not
+    // reach. On PHP 8 a disabled shell_exec fails the function_exists check, so this degrades
+    // back to '-' rather than warning.
     $mi = @file_get_contents('/proc/meminfo');
-    if ($mi === false || !preg_match('/^MemAvailable:\s+(\d+)/m', $mi, $m)) {
+    if ($mi === false && function_exists('shell_exec')) {
+        $mi = @shell_exec('cat /proc/meminfo 2>/dev/null');
+    }
+    if (!is_string($mi) || !preg_match('/^MemAvailable:\s+(\d+)/m', $mi, $m)) {
         return '-';
     }
     return round((int) $m[1] / 1024) . 'MB';
