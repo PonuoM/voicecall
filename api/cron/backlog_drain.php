@@ -84,18 +84,37 @@ function drain_log(string $msg): void
  */
 function host_mem_available(): string
 {
-    // Direct read first; on this host open_basedir fences PHP out of /proc (first live reading
-    // came back '-'), so fall back to reading it through a shell, which open_basedir does not
-    // reach. On PHP 8 a disabled shell_exec fails the function_exists check, so this degrades
-    // back to '-' rather than warning.
+    // Direct read first; open_basedir fences PHP out of /proc here, so fall back to a shell,
+    // which open_basedir does not reach. Both failed on the first live readings (10:25/10:50,
+    // 2 Sep) as a bare '-', which said nothing about WHY - so each dead end now names itself:
+    //   -noshell    open_basedir blocked the read and shell_exec is disabled/absent
+    //   -shellempty the shell ran but produced nothing (CageFS-restricted /proc, most likely)
+    //   -noline     meminfo was readable but carries no MemAvailable line (ancient kernel)
     $mi = @file_get_contents('/proc/meminfo');
-    if ($mi === false && function_exists('shell_exec')) {
+    if ($mi === false) {
+        if (!function_exists('shell_exec')) {
+            return '-noshell';
+        }
         $mi = @shell_exec('cat /proc/meminfo 2>/dev/null');
+        if (!is_string($mi) || trim($mi) === '') {
+            return '-shellempty';
+        }
     }
-    if (!is_string($mi) || !preg_match('/^MemAvailable:\s+(\d+)/m', $mi, $m)) {
-        return '-';
+    if (!preg_match('/^MemAvailable:\s+(\d+)/m', $mi, $m)) {
+        return '-noline';
     }
     return round((int) $m[1] / 1024) . 'MB';
+}
+
+/**
+ * 1-minute load average via syscall - no file access, no shell, so none of the fences above
+ * apply. Not a memory number, but a thrashing host shows up as a load spike, so it still
+ * timestamps "when the box went bad" if meminfo stays unreachable.
+ */
+function host_load(): string
+{
+    $la = function_exists('sys_getloadavg') ? sys_getloadavg() : false;
+    return is_array($la) ? sprintf('%.2f', $la[0]) : '-';
 }
 
 function drain_progress(PDO $pdo): array
@@ -117,7 +136,7 @@ drain_log(sprintf('progress: %s/%s done (%.2f%%) — completed=%s skipped=%s fai
     number_format($done), number_format((int) $p['indexed']),
     $p['indexed'] ? $done / (int) $p['indexed'] * 100 : 0,
     number_format((int) $p['completed']), number_format((int) $p['skipped']),
-    number_format((int) $p['failed']), number_format($remaining), host_mem_available()));
+    number_format((int) $p['failed']), number_format($remaining), host_mem_available() . ' load=' . host_load()));
 
 if ($statusOnly) {
     exit(0);
@@ -288,4 +307,4 @@ $done = (int) $p['completed'] + (int) $p['skipped'] + (int) $p['failed'];
 drain_log(sprintf('run done: completed=%d skipped=%d failed=%d deferred=%d | overall %s/%s (%.2f%%) | mem_avail=%s',
     $counts['completed'], $counts['skipped'], $counts['failed'], $counts['deferred'] ?? 0,
     number_format($done), number_format((int) $p['indexed']),
-    $p['indexed'] ? $done / (int) $p['indexed'] * 100 : 0, host_mem_available()));
+    $p['indexed'] ? $done / (int) $p['indexed'] * 100 : 0, host_mem_available() . ' load=' . host_load()));
