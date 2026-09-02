@@ -75,6 +75,22 @@ function drain_log(string $msg): void
     @file_put_contents(LOG_DIR . '/backlog_drain.log', $line, FILE_APPEND);
 }
 
+/**
+ * MemAvailable of the whole host, in MB ('-' where /proc is not a thing, e.g. the Windows dev
+ * box). Stamped onto every cycle's summary lines because this host was OOM-killing processes
+ * for a week (27 Aug - 2 Sep 2026) and nobody could say when pressure actually built or how
+ * fast - the drain runs around the clock anyway, so its log doubles as a free 24/7 memory
+ * time series without adding any endpoint or cron.
+ */
+function host_mem_available(): string
+{
+    $mi = @file_get_contents('/proc/meminfo');
+    if ($mi === false || !preg_match('/^MemAvailable:\s+(\d+)/m', $mi, $m)) {
+        return '-';
+    }
+    return round((int) $m[1] / 1024) . 'MB';
+}
+
 function drain_progress(PDO $pdo): array
 {
     return fetch_one($pdo, "
@@ -90,11 +106,11 @@ function drain_progress(PDO $pdo): array
 $p = drain_progress($pdo);
 $done = (int) $p['completed'] + (int) $p['skipped'] + (int) $p['failed'];
 $remaining = max(0, (int) $p['indexed'] - $done);
-drain_log(sprintf('progress: %s/%s done (%.2f%%) — completed=%s skipped=%s failed=%s, remaining=%s',
+drain_log(sprintf('progress: %s/%s done (%.2f%%) — completed=%s skipped=%s failed=%s, remaining=%s | mem_avail=%s',
     number_format($done), number_format((int) $p['indexed']),
     $p['indexed'] ? $done / (int) $p['indexed'] * 100 : 0,
     number_format((int) $p['completed']), number_format((int) $p['skipped']),
-    number_format((int) $p['failed']), number_format($remaining)));
+    number_format((int) $p['failed']), number_format($remaining), host_mem_available()));
 
 if ($statusOnly) {
     exit(0);
@@ -262,7 +278,7 @@ foreach ($candidates as $cand) {
 
 $p = drain_progress($pdo);
 $done = (int) $p['completed'] + (int) $p['skipped'] + (int) $p['failed'];
-drain_log(sprintf('run done: completed=%d skipped=%d failed=%d deferred=%d | overall %s/%s (%.2f%%)',
+drain_log(sprintf('run done: completed=%d skipped=%d failed=%d deferred=%d | overall %s/%s (%.2f%%) | mem_avail=%s',
     $counts['completed'], $counts['skipped'], $counts['failed'], $counts['deferred'] ?? 0,
     number_format($done), number_format((int) $p['indexed']),
-    $p['indexed'] ? $done / (int) $p['indexed'] * 100 : 0));
+    $p['indexed'] ? $done / (int) $p['indexed'] * 100 : 0, host_mem_available()));

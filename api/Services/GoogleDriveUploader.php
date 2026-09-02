@@ -46,43 +46,76 @@ class GoogleDriveUploader {
 
     public function uploadFile($filePath, $fileName, $mimeType = 'audio/wav') {
         $token = $this->getAccessToken();
-        
-        $metadata = [
+
+        $fileSize = filesize($filePath);
+        if ($fileSize === false) {
+            throw new Exception("Google Drive Upload failed: cannot stat {$filePath}");
+        }
+
+        // This used to build the whole multipart body as one PHP string (metadata + the entire
+        // file + boundaries), which held the audio in memory two to three times over per upload.
+        // Uploads run in bursts from the sync dashboard during business hours - exactly when the
+        // shared host is already tightest (it OOM'd on this very line repeatedly, 31 Aug-1 Sep
+        // 2026). A resumable session costs one extra tiny request, and then curl streams the
+        // file straight from disk: memory stays flat regardless of file size.
+        $metadata = json_encode([
             'name' => $fileName,
             'parents' => [$this->folderId]
-        ];
-        
-        $boundary = '-------' . uniqid();
-        $content = "--" . $boundary . "\r\n";
-        $content .= "Content-Type: application/json; charset=UTF-8\r\n\r\n";
-        $content .= json_encode($metadata) . "\r\n";
-        $content .= "--" . $boundary . "\r\n";
-        $content .= "Content-Type: " . $mimeType . "\r\n\r\n";
-        $content .= file_get_contents($filePath) . "\r\n";
-        $content .= "--" . $boundary . "--";
+        ]);
 
-        $url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-        
-        $ch = curl_init($url);
+        $ch = curl_init('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $content);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $metadata);
+        curl_setopt($ch, CURLOPT_HEADER, true); // the session URL comes back in the Location header
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "Authorization: Bearer {$token}",
-            "Content-Type: multipart/related; boundary={$boundary}",
-            "Content-Length: " . strlen($content)
+            'Content-Type: application/json; charset=UTF-8',
+            "X-Upload-Content-Type: {$mimeType}",
+            "X-Upload-Content-Length: {$fileSize}"
         ]);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        // Verification on, with the CA bundle the rest of the pipeline already uses against
+        // googleapis.com in production - unverified TLS here would hand the OAuth token to
+        // whoever answered.
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/../certs/cacert.pem');
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        $data = json_decode($response, true);
-        if ($httpCode === 200 && isset($data['id'])) {
+        if ($response === false || $httpCode !== 200 || !preg_match('/^location:\s*(\S+)/mi', (string) $response, $m)) {
+            throw new Exception("Google Drive Upload failed: no resumable session (HTTP $httpCode) " . substr((string) $response, 0, 500));
+        }
+        $uploadUrl = $m[1];
+
+        $fh = fopen($filePath, 'rb');
+        if ($fh === false) {
+            throw new Exception("Google Drive Upload failed: cannot open {$filePath}");
+        }
+
+        $ch = curl_init($uploadUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_UPLOAD, true); // PUT, streamed from the handle below
+        curl_setopt($ch, CURLOPT_INFILE, $fh);
+        curl_setopt($ch, CURLOPT_INFILESIZE, $fileSize);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: {$mimeType}"]);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/../certs/cacert.pem');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 300);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        fclose($fh);
+
+        $data = json_decode((string) $response, true);
+        if (($httpCode === 200 || $httpCode === 201) && isset($data['id'])) {
             return $data['id']; // Return the Google Drive File ID
         }
-        
+
         throw new Exception("Google Drive Upload failed: HTTP $httpCode " . $response);
     }
 
